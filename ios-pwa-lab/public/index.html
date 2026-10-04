@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#133d38"><meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="description" content="iPhone Safari 與主畫面 PWA 的手機能力測試台">
+  <link rel="manifest" href="./manifest.webmanifest"><link rel="apple-touch-icon" href="./icons/icon-192.png">
+  <link rel="stylesheet" href="./styles.css"><title>iOS PWA Lab</title>
+</head>
+<body>
+  <header><div class="brand">PWA <span>LAB</span></div><span id="environment">環境讀取中</span></header>
+  <main>
+    <section class="hero"><p class="eyebrow">IPHONE CAPABILITY WORKBENCH · v0.1.1</p><h1>探索手機的<br><em>Web 能力。</em></h1><p>逐項操作、保存證據，分別比較 Safari 與主畫面 App。</p><div id="connection" class="pill"></div></section>
+    <aside id="notice" role="status" aria-live="polite">正在初始化…</aside>
+    <section class="setup" aria-label="實機資料"><label>機型<input id="model" placeholder="例如 iPhone 17 Pro" maxlength="80"></label><label>完整 iOS 版本<input id="ios" placeholder="請從設定填寫" maxlength="40"></label><p>資料保存於此瀏覽器；重要結果請匯出。媒體與完整座標只在本次畫面顯示。</p></section>
+    <nav id="categories" aria-label="能力分類"></nav>
+    <section class="workspace"><div class="section-heading"><div><p class="eyebrow" id="category-index"></p><h2 id="category-title"></h2></div><button id="stop" class="danger">停止目前操作</button></div><p id="category-note"></p><div id="tests"></div><div id="live" aria-live="polite"></div></section>
+    <section class="records"><div class="section-heading"><h2>測試紀錄 <span id="count">0</span></h2><div class="actions"><button id="export-json">匯出 JSON</button><button id="export-md">匯出 Markdown</button></div></div><label>顯示模式<select id="mode-filter"><option value="all">全部</option><option value="safari-tab">Safari／瀏覽器分頁</option><option value="pwa">主畫面 PWA</option></select></label><div id="results"></div><details><summary>清除本 App 資料</summary><p>只刪除本 App 的紀錄、設定與快取。離線時清除快取後，需要連線重新快取。</p><button id="clear" class="danger">確認清除本 App 資料</button></details></section>
+    <section class="install"><h2>在 iPhone 測試</h2><ol><li>使用 HTTPS 網址在 Safari 開啟。</li><li>分享 → 加入主畫面，再從圖示啟動。</li><li>等待顯示「離線快取就緒」，開啟飛航模式後重啟驗證。</li></ol><p id="sw-status">離線快取未就緒</p><button id="check-update">檢查更新</button><button id="apply-update" hidden>套用新版並重新載入</button></section>
+    <footer>本機研究工具 · 不連接 AI 或後端 · 硬體與系統效果需實機確認</footer>
+  </main><script type="module" src="./app.js"></script>
+</body></html>
