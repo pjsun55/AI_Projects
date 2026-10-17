@@ -16,6 +16,7 @@ try {
       for (const viewport of [{ width: 393, height: 852 }, { width: 320, height: 568 }]) {
         const context = await browser.newContext({ viewport, isMobile: true, hasTouch: true });
         const page = await context.newPage(), errors = [];
+        let phase = 'layout', offlineState;
         try {
         page.on('pageerror', error => errors.push(error.message));
         await context.route('**/*', route => {
@@ -79,18 +80,40 @@ try {
           console.log(JSON.stringify({ browser: name, viewport, subtitleSize: size, status: 'PASS', captionPixels: layout.listHeight }));
         }
         if (name === 'chromium') {
+          phase = 'offline-preconditions';
+          // Cache readiness alone does not establish that this document is
+          // controlled. Verify a real SW navigation before cutting the network.
+          await page.waitForFunction(() => navigator.serviceWorker.controller?.state === 'activated');
           await page.waitForFunction(() => document.getElementById('offline-status').textContent.startsWith('頁面已可離線使用'));
           const scope = await page.evaluate(async () => (await navigator.serviceWorker.ready).scope);
           assert.equal(scope, origin + basePath);
-          await context.setOffline(true); await page.reload();
+          const controlledResponse = await page.reload();
+          assert.equal(controlledResponse?.fromServiceWorker(), true, 'Online navigation must already be served by the service worker.');
           await page.waitForFunction(() => document.querySelector('#playlist-tracks .track-main'));
+          offlineState = await page.evaluate(async () => ({
+            path: location.pathname + location.search,
+            controller: navigator.serviceWorker.controller?.state,
+            cachedNavigation: !!(await caches.match(location.href)),
+            cacheNames: await caches.keys()
+          }));
+          assert.equal(offlineState.cachedNavigation, true, JSON.stringify(offlineState));
+          // End the translation mock before this separate network test. The
+          // browser offline flag now rejects every actual network request.
+          await context.unrouteAll({ behavior: 'wait' });
+          phase = 'offline-reload';
+          await context.setOffline(true);
+          const offlineResponse = await page.reload();
+          assert.equal(offlineResponse?.fromServiceWorker(), true, 'Offline navigation must come from the service worker.');
+          await page.waitForFunction(() => document.querySelector('#playlist-tracks .track-main'));
+          const uncachedFailed = await page.evaluate(() => fetch('./index.html?uncached-offline-probe=1').then(() => false, () => true));
+          assert.equal(uncachedFailed, true, 'An uncached network request must fail while offline.');
           console.log(JSON.stringify({ browser: name, offlineReload: 'PASS', scope }));
         }
         assert.deepEqual(errors, []);
         await page.screenshot({ path: new URL(`${name}-${viewport.width}.png`, output).pathname });
         } catch (error) {
           await page.screenshot({ path: new URL(`${name}-${viewport.width}-failure.png`, output).pathname }).catch(() => {});
-          throw error;
+          throw new Error(JSON.stringify({ browser: name, viewport, phase, offlineState, message: error.message }), { cause: error });
         } finally { await context.close(); }
       }
     } finally { await browser.close(); }
