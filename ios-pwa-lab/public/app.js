@@ -125,14 +125,23 @@ $('#clear').onclick=async()=>{
   }catch(error){notice(`清除未全部完成：${error.message}。請關閉其他分頁後重試。`);}finally{clearing=false;}
 };
 for(const input of [$('#model'),$('#ios')])input.onchange=()=>{try{localStorage.setItem('ios-pwa-lab:device',JSON.stringify({model:$('#model').value,ios:$('#ios').value}));}catch(error){notice(`機型設定未保存：${error.message}`);}};
+function syncUpdateNotice(){
+  if(clearing)return;
+  const candidate=registration?.waiting,controller=navigator.serviceWorker.controller;
+  const available=!!(candidate?.state==='installed' && controller && candidate!==controller);
+  $('#apply-update').hidden=!available;
+  if(available)$('#sw-status').textContent='新版已完整快取，請套用更新。';
+  else if(registration?.active)$('#sw-status').textContent=`離線快取就緒 · v${VERSION}`;
+}
+navigator.serviceWorker?.addEventListener('controllerchange',syncUpdateNotice);
 async function setupServiceWorker(){
   if(!isSecureContext||!navigator.serviceWorker){$('#sw-status').textContent='Service Worker 需要 HTTPS 或 localhost 與瀏覽器支援';return;}
   try{
     registration=await navigator.serviceWorker.register('./sw.js',{scope:'./',updateViaCache:'none'});
-    const update=()=>{if(registration?.waiting){$('#apply-update').hidden=false;$('#sw-status').textContent='新版已完整快取，請套用更新。';}};
-    update();registration.addEventListener('updatefound',()=>{const worker=registration.installing;worker?.addEventListener('statechange',()=>{if(worker.state==='installed'){update();if(!navigator.serviceWorker.controller)$('#sw-status').textContent=`離線快取就緒 · v${VERSION}`;}});});
+    const watch=()=>{registration?.installing?.addEventListener('statechange',syncUpdateNotice);syncUpdateNotice();};
+    watch();registration.addEventListener('updatefound',watch);
     await navigator.serviceWorker.ready;
-    if(!registration.waiting)$('#sw-status').textContent=`離線快取就緒 · v${VERSION}`;
+    syncUpdateNotice();
   }catch(error){$('#sw-status').textContent=`快取未就緒：${error.message}`;}
 }
 $('#check-update').onclick=async()=>{try{if(!registration){await setupServiceWorker();return;}await registration.update();notice(registration.waiting?'新版可套用。':'更新檢查已完成；若有新版請等下載完成。');}catch(error){notice(`更新檢查失敗：${error.message}`);}};

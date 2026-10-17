@@ -75,6 +75,31 @@ test('只清除本 App 資料，其他 localStorage／快取保留',async({page}
   expect(await page.evaluate(()=>localStorage.getItem('other-app'))).toBe('keep');expect(await page.evaluate(async()=>(await caches.keys()).includes('other-app-cache'))).toBeTruthy();
   await page.reload();await expect(page.locator('#count')).toHaveText('0');
 });
+test('更新提示區分首次安裝與待套用新版，啟用後再次隱藏',async({page})=>{
+  await page.addInitScript(()=>{
+    const container=new EventTarget(),registration=new EventTarget(),worker=new EventTarget();
+    worker.state='installed';
+    registration.waiting=worker;registration.active=null;registration.installing=worker;
+    registration.unregister=async()=>true;
+    container.controller=null;container.register=async()=>registration;container.ready=Promise.resolve(registration);
+    Object.defineProperty(navigator,'serviceWorker',{configurable:true,value:container});
+    window.fixtureUpdateState=state=>{
+      if(state==='first-control'){container.controller=worker;registration.active=worker;container.dispatchEvent(new Event('controllerchange'));}
+      else if(state==='waiting'){container.controller={state:'activated'};registration.active=container.controller;registration.waiting=worker;registration.dispatchEvent(new Event('updatefound'));}
+      else{registration.waiting=null;registration.installing=null;registration.active=worker;container.controller=worker;container.dispatchEvent(new Event('controllerchange'));}
+    };
+  });
+  await page.reload();await expect(page.locator('#notice')).toContainText('準備就緒');
+  await expect(page.locator('#apply-update')).toBeHidden();
+  await page.evaluate(()=>window.fixtureUpdateState('first-control'));
+  await expect(page.locator('#apply-update')).toBeHidden();
+  await page.evaluate(()=>window.fixtureUpdateState('waiting'));
+  await expect(page.locator('#apply-update')).toBeVisible();
+  await expect(page.locator('#sw-status')).toContainText('新版已完整快取');
+  await page.evaluate(()=>window.fixtureUpdateState('active'));
+  await expect(page.locator('#apply-update')).toBeHidden();
+  await expect(page.locator('#sw-status')).toContainText('離線快取就緒');
+});
 test('Canvas、WebAssembly、Worker 與 Crypto 使用真實回傳值驗證',async({page})=>{
   await choose(page,'圖形與計算');for(const id of ['canvas','wasm','worker','crypto']){await run(page,id);await expect(result(page)).toContainText('成功');}
 });

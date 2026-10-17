@@ -1,4 +1,4 @@
-const VERSION = '0.1.1';
+const VERSION = '0.1.2';
 const PREFIX = 'ios-pwa-lab:';
 const CACHE = `${PREFIX}shell-${VERSION}`;
 const SHELL = ['index.html','styles.css','app.js','core.js','catalog.js','storage.js','probes.js','manifest.webmanifest','icons/icon-192.png','icons/icon-512.png','worker.js'];

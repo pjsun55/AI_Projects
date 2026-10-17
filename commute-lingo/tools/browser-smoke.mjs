@@ -97,4 +97,10 @@ try {
       }
     } finally { await browser.close(); }
   }
+} catch (error) {
+  if (process.env.GITHUB_ACTIONS === 'true') {
+    const message = String(error.message).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+    console.error(`::error title=CommuteLingo browser smoke::${message}`);
+  }
+  throw error;
 } finally { await new Promise(resolve => { server.close(resolve); server.closeAllConnections(); }); }
