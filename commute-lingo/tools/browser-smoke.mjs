@@ -1,7 +1,7 @@
 // CI only: use this app's locked Playwright dependency. No Mac install.
 import assert from 'node:assert/strict';
 import { chromium, webkit } from '@playwright/test';
-import { mkdir, readFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile } from 'node:fs/promises';
 import { createServer } from './server.mjs';
 const { version } = JSON.parse(await readFile(new URL('../package.json', import.meta.url)));
 const basePath = '/AI_Projects/commute-lingo/';
@@ -11,12 +11,18 @@ const origin = `http://127.0.0.1:${server.address().port}`, url = `${origin}${ba
 const output = new URL('../.tmp/browser-results/', import.meta.url); await mkdir(output, { recursive: true });
 try {
   for (const [name, engine] of Object.entries({ chromium, webkit })) {
-    const browser = await engine.launch();
+    const browser = name === 'webkit' ? null : await engine.launch();
     try {
       for (const viewport of [{ width: 393, height: 852 }, { width: 320, height: 568 }]) {
-        const context = await browser.newContext({ viewport, isMobile: true, hasTouch: true });
+        // WebKit's ephemeral data store rejects IndexedDB Blobs. Exercise the
+        // ordinary persistent storage path using a fresh CI-only profile.
+        // Profiles stay outside browser-results and are never uploaded.
+        const options = { viewport, isMobile: true, hasTouch: true };
+        const context = name === 'webkit'
+          ? await engine.launchPersistentContext(await mkdtemp(new URL('../.tmp/webkit-profile-', import.meta.url).pathname), options)
+          : await browser.newContext(options);
         const page = await context.newPage(), errors = [];
-        let phase = 'layout', offlineState;
+        let phase = 'fixture-storage', offlineState;
         try {
         page.on('pageerror', error => errors.push(error.message));
         await context.route('**/*', route => {
@@ -39,9 +45,14 @@ try {
           view.setUint16(32, 2, true); view.setUint16(34, 16, true); text(36, 'data'); view.setUint32(40, 32000, true);
           data.revision = 1;
           await storage.commitLibrary(data, { expectedRevision: 0, audio: { id: 'fixture-track', blob: new Blob([bytes], { type: 'audio/wav' }) } });
+          const stored = await storage.read('audio:fixture-track');
+          if (!(stored instanceof Blob) || stored.size !== bytes.byteLength || stored.type !== 'audio/wav') throw new Error('Stored fixture audio must retain its Blob size and MIME type.');
+          const actual = new Uint8Array(await stored.arrayBuffer()), expected = new Uint8Array(bytes);
+          if (actual.some((byte, index) => byte !== expected[index])) throw new Error('Stored fixture audio bytes changed.');
         }, { version });
         await page.reload();
         await page.waitForFunction(() => !document.getElementById('start-import').disabled && document.querySelector('#playlist-tracks .track-main'));
+        phase = 'layout';
         for (const size of ['normal', 'large', 'xlarge']) {
           await page.locator('[data-tab="settings"]').click();
           await page.locator('#setting-subtitles').selectOption(size);
@@ -130,7 +141,7 @@ try {
           throw new Error(JSON.stringify({ browser: name, viewport, phase, offlineState, message: error.message }), { cause: error });
         } finally { await context.close(); }
       }
-    } finally { await browser.close(); }
+    } finally { await browser?.close(); }
   }
 } catch (error) {
   if (process.env.GITHUB_ACTIONS === 'true') {
