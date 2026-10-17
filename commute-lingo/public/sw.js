@@ -1,6 +1,6 @@
 const PREFIX = 'commute-lingo-shell-';
-const VERSION = '0.2.9';
-const CACHE = `${PREFIX}${VERSION}-r2`;
+const VERSION = '0.2.10';
+const CACHE = `${PREFIX}${VERSION}-r1`;
 const ASSETS = ['./', `./?v=${VERSION}`, './index.html', './icon.svg',
   ...['journey', 'dialogue', 'sunrise'].flatMap(name => [`./icon-${name}.svg`, `./icon-${name}-192.png`, `./icon-${name}-512.png`, `./manifest-${name}.webmanifest?v=${VERSION}`]),
   ...['styles.css', 'app.mjs', 'core.mjs', 'storage.mjs', 'translation.mjs', 'transcriber.mjs', 'asr.mjs', 'decode.mjs', 'decoder.mjs', 'library.mjs', 'source.mjs', 'network.mjs', 'icons.mjs', 'gestures.mjs', 'subtitles.mjs', 'backup.mjs', 'manifest.webmanifest', 'updates.mjs'].map(name => `./${name}?v=${VERSION}`)];

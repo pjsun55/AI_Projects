@@ -1,4 +1,4 @@
-import { normalizeSegments, groupSentences } from './core.mjs?v=0.2.9';
+import { normalizeSegments, groupSentences } from './core.mjs?v=0.2.10';
 
 export const LIBRARY_KEY = 'library-v2';
 export const DEFAULT_SETTINGS = Object.freeze({ albumLimit: 3, trackLimit: 3, maxMinutes: 25, autoUpdate: true, subtitleSize: 'normal', icon: 'sunrise', language: 'en', model: 'tiny' });

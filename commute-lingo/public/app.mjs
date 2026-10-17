@@ -1,13 +1,13 @@
-import { formatTime, findActive, transcriptCoverage, toSRT, sentenceTexts } from './core.mjs?v=0.2.9';
-import * as storage from './storage.mjs?v=0.2.9';
-import { createTranslator } from './translation.mjs?v=0.2.9';
-import { DEFAULT_SETTINGS, LIBRARY_KEY, emptyLibrary, validateSettings, title, tracksIn, addAlbum, removeAlbum, removeTrack, rename, placeTrack, changeSettings, libraryBytes, playbackQueue, sentenceTarget, sentencesFor, legacyLibrary, newId } from './library.mjs?v=0.2.9';
-import { importPodcast, transcribeSavedAudio } from './source.mjs?v=0.2.9';
-import { icon, fillIcons } from './icons.mjs?v=0.2.9';
-import { longPress, isMobileLandscape } from './gestures.mjs?v=0.2.9';
-import { zipFiles } from './backup.mjs?v=0.2.9';
-import { createSubtitleFollow, subtitleScrollTop, sentenceReadingParts } from './subtitles.mjs?v=0.2.9';
-import { createUpdater, reloadVersion } from './updates.mjs?v=0.2.9';
+import { formatTime, findActive, transcriptCoverage, toSRT, sentenceTexts } from './core.mjs?v=0.2.10';
+import * as storage from './storage.mjs?v=0.2.10';
+import { createTranslator } from './translation.mjs?v=0.2.10';
+import { DEFAULT_SETTINGS, LIBRARY_KEY, emptyLibrary, validateSettings, title, tracksIn, addAlbum, removeAlbum, removeTrack, rename, placeTrack, changeSettings, libraryBytes, playbackQueue, sentenceTarget, sentencesFor, legacyLibrary, newId } from './library.mjs?v=0.2.10';
+import { importPodcast, transcribeSavedAudio } from './source.mjs?v=0.2.10';
+import { icon, fillIcons } from './icons.mjs?v=0.2.10';
+import { longPress, isMobileLandscape } from './gestures.mjs?v=0.2.10';
+import { zipFiles } from './backup.mjs?v=0.2.10';
+import { createSubtitleFollow, subtitleScrollTop, sentenceReadingParts } from './subtitles.mjs?v=0.2.10';
+import { createUpdater, reloadVersion } from './updates.mjs?v=0.2.10';
 
 const $ = id => document.getElementById(id);
 const audio = $('audio');
@@ -20,7 +20,7 @@ const currentTrack = () => state.library.tracks.find(track => track.id === state
 const albumOf = track => state.library.albums.find(album => album.id === track?.albumId);
 const safe = action => (...args) => { try { return Promise.resolve(action(...args)).catch(error => notify(error.message, true)); } catch (error) { notify(error.message, true); } };
 const updater = createUpdater({
-  serviceWorker: navigator.serviceWorker, version: '0.2.9',
+  serviceWorker: navigator.serviceWorker, version: '0.2.10',
   isAuto: () => state.library.settings.autoUpdate,
   visible: () => !document.hidden,
   canUpdate: () => state.ready && audio.paused && !state.loadingAudio && !state.job && !state.pending && !state.writing && !state.clearing && !state.backup && !state.translation && !state.settingsDirty && !$('player').open && !$('action-dialog').open && !$('source-url').value.trim() && !document.activeElement?.matches?.('input,select,textarea'),
@@ -158,7 +158,7 @@ function applyAppearance(settings) {
   document.documentElement.style.setProperty('--subtitle-size', { normal: '18.4px', large: '22.4px', xlarge: '27.2px' }[settings.subtitleSize]);
   $('brand-icon').src = `./icon-${settings.icon}.svg`; $('favicon').href = `./icon-${settings.icon}.svg`;
   $('touch-icon').href = `./icon-${settings.icon}-192.png`;
-  $('manifest').href = `./manifest-${settings.icon}.webmanifest?v=0.2.9`;
+  $('manifest').href = `./manifest-${settings.icon}.webmanifest?v=0.2.10`;
 }
 async function refreshStorage() {
   const total = libraryBytes(state.library);
@@ -623,7 +623,7 @@ async function offlineStatus() {
     const check = () => {
       const channel = new MessageChannel();
       const timer = setTimeout(() => { channel.port1.close(); $('offline-status').textContent = '新版可在線使用；請在保存後關閉舊分頁再開啟，以更新離線頁面。'; }, 2000);
-      channel.port1.onmessage = ({ data }) => { clearTimeout(timer); channel.port1.close(); $('offline-status').textContent = data.version === '0.2.9' && data.ready ? '頁面已可離線使用；已收藏的音訊與快取翻譯可離線讀取，新匯入與新翻譯需要連線。' : '新版可在線使用，離線頁面尚待更新。'; };
+      channel.port1.onmessage = ({ data }) => { clearTimeout(timer); channel.port1.close(); $('offline-status').textContent = data.version === '0.2.10' && data.ready ? '頁面已可離線使用；已收藏的音訊與快取翻譯可離線讀取，新匯入與新翻譯需要連線。' : '新版可在線使用，離線頁面尚待更新。'; };
       registration.active?.postMessage({ type: 'CACHE_VERSION' }, [channel.port2]);
     };
     navigator.serviceWorker.addEventListener('controllerchange', check); check();
