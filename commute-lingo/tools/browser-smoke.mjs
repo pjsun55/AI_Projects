@@ -9,6 +9,7 @@ const server = await createServer({ basePath });
 await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
 const origin = `http://127.0.0.1:${server.address().port}`, url = `${origin}${basePath}?v=${version}`;
 const output = new URL('../.tmp/browser-results/', import.meta.url); await mkdir(output, { recursive: true });
+const failures = [];
 try {
   for (const [name, engine] of Object.entries({ chromium, webkit })) {
     const browser = name === 'webkit' ? null : await engine.launch();
@@ -138,11 +139,12 @@ try {
         await page.screenshot({ path: new URL(`${name}-${viewport.width}.png`, output).pathname });
         } catch (error) {
           await page.screenshot({ path: new URL(`${name}-${viewport.width}-failure.png`, output).pathname }).catch(() => {});
-          throw new Error(JSON.stringify({ browser: name, viewport, phase, offlineState, message: error.message }), { cause: error });
+          failures.push(new Error(JSON.stringify({ browser: name, viewport, phase, offlineState, message: error.message }), { cause: error }));
         } finally { await context.close(); }
       }
     } finally { await browser?.close(); }
   }
+  if (failures.length) throw new AggregateError(failures, failures.map(error => error.message).join('\n'));
 } catch (error) {
   if (process.env.GITHUB_ACTIONS === 'true') {
     const message = String(error.message).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
