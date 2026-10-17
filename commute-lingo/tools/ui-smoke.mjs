@@ -62,8 +62,8 @@ try {
   subtitleList.scrollTo = ({ top }) => { subtitleList.scrollTop = top; subtitleScrolls.push(top); };
   window.scrollTo = () => {}; let hidden = false;
   Object.defineProperty(document, 'hidden', { get: () => hidden });
-  const audio = $('audio'); let paused = true;
-  Object.defineProperties(audio, { paused: { get: () => paused }, src: { get() { return this.getAttribute('src') || ''; }, set(value) { this.setAttribute('src', value); } }, readyState: { get: () => 1 } });
+  const audio = $('audio'); let paused = true, audioAssignments = 0;
+  Object.defineProperties(audio, { paused: { get: () => paused }, src: { get() { return this.getAttribute('src') || ''; }, set(value) { audioAssignments++; this.setAttribute('src', value); } }, readyState: { get: () => 1 } });
   audio.currentTime = 0; audio.playbackRate = 1;
   audio.play = async () => { paused = false; audio.dispatchEvent(event('play')); };
   audio.pause = () => { if (!paused) { paused = true; audio.dispatchEvent(event('pause')); } };
@@ -150,6 +150,13 @@ try {
   const playRow = [...$('playlist-tracks').querySelectorAll('.track-main')].find(element => element.textContent.includes(activeTrack.title));
   playRow.dispatchEvent(event('click')); await until(() => $('player').open && !audio.paused, 'track playback');
   check($('subtitles-panel').hidden, 'opening a new track keeps subtitles hidden');
+  const assignmentsBeforeReopen = audioAssignments;
+  audio.currentTime = 1.25; click('player-close'); await delay(10);
+  [...$('playlist-tracks').querySelectorAll('.track-main')].find(element => element.textContent.includes(activeTrack.title)).dispatchEvent(event('click'));
+  await until(() => $('player').open && !audio.paused, 'same episode reopens');
+  check(audioAssignments === assignmentsBeforeReopen && audio.currentTime === 1.25, 'reopening the current episode preserves the loaded audio resource and live position');
+  audio.currentTime = 0;
+
   click('toggle-subtitles'); check(!$('subtitles-panel').hidden && $('subtitle-list').children.length === 2, 'subtitle toggle displays timeline-aligned sentences');
   check($('player').classList.contains('subtitles-open') && $('toggle-subtitles').getAttribute('aria-pressed') === 'true', 'opening subtitles enters the expanded reading layout');
   const beforeLayoutToggle = { time: audio.currentTime, speed: audio.playbackRate, paused: audio.paused, source: audio.src };

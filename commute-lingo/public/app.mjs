@@ -7,7 +7,7 @@ import { icon, fillIcons } from './icons.mjs?v=0.2.9';
 import { longPress, isMobileLandscape } from './gestures.mjs?v=0.2.9';
 import { zipFiles } from './backup.mjs?v=0.2.9';
 import { createSubtitleFollow, subtitleScrollTop, sentenceReadingParts } from './subtitles.mjs?v=0.2.9';
-import { createUpdater } from './updates.mjs?v=0.2.9';
+import { createUpdater, reloadVersion } from './updates.mjs?v=0.2.9';
 
 const $ = id => document.getElementById(id);
 const audio = $('audio');
@@ -31,7 +31,7 @@ const updater = createUpdater({
     $('apply-update').hidden = !waiting; $('apply-update').disabled = !!applying || !!checking;
     $('check-update').disabled = !!checking || !!applying;
   },
-  reload: version => { const target = new URL(location.href); target.search = new URLSearchParams({ v: version }); location.replace(target.href); }
+  reload: version => reloadVersion(location, version)
 });
 function notify(message, error = false) {
   clearTimeout(messageTimer); $('global-message').hidden = false;
@@ -427,17 +427,19 @@ async function selectTrack(id, { queue = [id], autoplay = false, expand = false,
   try {
     const track = state.library.tracks.find(track => track.id === id); if (!track) return;
     const token = ++state.playerToken;
-    saveProgress(); audio.pause(); closeTranslation(); resetSubtitles();
+    const reuse = state.current === id && state.urls.get(id) === audio.src && audio.readyState >= 1;
+    const livePosition = reuse ? audio.currentTime : undefined;
+    saveProgress(); if (!reuse) audio.pause(); closeTranslation(); resetSubtitles();
     let url = state.urls.get(id);
     if (!url) url = await prepareURL(id);
     if (token !== state.playerToken) return;
-    const saved = position === undefined ? await storage.read(`progress:${id}`) : null; if (token !== state.playerToken) return;
+    const saved = position === undefined && !reuse ? await storage.read(`progress:${id}`) : null; if (token !== state.playerToken) return;
     state.current = id; state.queue = queue.filter(item => state.library.tracks.some(track => track.id === item));
-    state.sentences = sentencesFor(track); audio.src = url; audio.playbackRate = +$('playback-speed').value;
-    const resumeAt = position ?? saved?.position ?? track.position ?? 0;
+    state.sentences = sentencesFor(track); if (!reuse) audio.src = url; audio.playbackRate = +$('playback-speed').value;
+    const resumeAt = position ?? livePosition ?? saved?.position ?? track.position ?? 0;
     const start = resumeAt >= track.duration - 1 ? 0 : Math.max(0, Math.min(track.duration - 0.1, resumeAt));
     const seek = () => { if (token === state.playerToken) { audio.currentTime = start; updateTimeline(); } };
-    audio.onloadedmetadata = seek; if (audio.readyState >= 1) seek();
+    if (!reuse || position !== undefined || audio.ended) { audio.onloadedmetadata = seek; if (audio.readyState >= 1) seek(); }
     renderSubtitles(); updatePlayer(); renderPlaylist(); updateMediaSession();
     if (expand) openPlayer();
     if (autoplay) play();

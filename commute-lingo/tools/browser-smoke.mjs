@@ -31,6 +31,17 @@ try {
         let phase = 'fixture-storage', offlineState, layoutState, mockedTranslations = 0;
         try {
         page.on('pageerror', error => errors.push(error.message));
+        await page.addInitScript(() => {
+          window.__mediaEvents = [];
+          for (const type of ['loadstart', 'loadedmetadata', 'canplay', 'play', 'playing', 'pause', 'ended', 'error', 'abort', 'emptied']) {
+            document.addEventListener(type, event => {
+              if (event.target?.id !== 'audio') return;
+              const audio = event.target;
+              window.__mediaEvents.push({ type, paused: audio.paused, ready: audio.readyState, time: audio.currentTime, error: audio.error?.code });
+              if (window.__mediaEvents.length > 20) window.__mediaEvents.shift();
+            }, true);
+          }
+        });
         await context.route('**/*', route => {
           const target = new URL(route.request().url());
           if (target.origin === origin) return route.continue();
@@ -81,8 +92,10 @@ try {
           await page.waitForFunction(() => document.getElementById('settings-message').textContent === '設定已儲存。');
           await page.locator('[data-tab="playlist"]').click();
           await page.locator('#playlist-tracks .track-main').first().click();
-          await page.waitForFunction(() => document.getElementById('player').open);
+          phase = `episode-ready-${size}`;
+          await page.waitForFunction(() => document.getElementById('player').open && !document.getElementById('audio').paused && document.getElementById('audio').readyState >= 2);
           await page.evaluate(() => document.getElementById('audio').pause());
+          phase = `caption-layout-${size}`;
           await page.locator('#toggle-subtitles').click();
           const layout = await page.evaluate(() => {
             const sheet = document.getElementById('player'), list = document.getElementById('subtitle-list'), rect = sheet.getBoundingClientRect();
@@ -113,9 +126,11 @@ try {
             return layoutState.bottom <= layoutState.sheetBottom + 1 && layoutState.captionHeight >= 40 && layoutState.scrolls && layoutState.equalFonts;
           }, { message: `${name} ${viewport.width} ${size}: long translation must scroll and preserve readable captions` }).toBe(true);
           await page.screenshot({ path: new URL(`${name}-${viewport.width}-${size}-translation.png`, output).pathname });
+          phase = `translation-close-resume-${size}`;
           await page.locator('#translation-close').click();
           await page.waitForFunction(() => document.getElementById('translation-panel').hidden && !document.getElementById('audio').paused);
           await page.evaluate(() => document.getElementById('audio').pause());
+          phase = `cached-translation-${size}`;
           await page.locator('.sentence-text').first().focus(); await page.keyboard.press('Enter');
           await expect(page.locator('#translation-text')).toHaveText(translationFixture);
           await page.locator('#player-play').click();
@@ -173,7 +188,13 @@ try {
         await page.screenshot({ path: new URL(`${name}-${viewport.width}.png`, output).pathname });
         } catch (error) {
           await page.screenshot({ path: new URL(`${name}-${viewport.width}-failure.png`, output).pathname }).catch(() => {});
-          failures.push(new Error(JSON.stringify({ browser: name, viewport, phase, mockedTranslations, offlineState, layoutState, message: error.message }), { cause: error }));
+          const mediaState = await page.evaluate(() => {
+            const audio = document.getElementById('audio');
+            return { paused: audio.paused, ended: audio.ended, ready: audio.readyState, network: audio.networkState, time: audio.currentTime, duration: audio.duration,
+              error: audio.error?.code, translationHidden: document.getElementById('translation-panel').hidden,
+              feedback: document.getElementById('player-feedback').textContent, events: window.__mediaEvents };
+          }).catch(() => undefined);
+          failures.push(new Error(JSON.stringify({ browser: name, viewport, phase, mockedTranslations, offlineState, layoutState, mediaState, message: error.message }), { cause: error }));
         } finally { await context.close(); }
       }
     } finally { await browser?.close(); }

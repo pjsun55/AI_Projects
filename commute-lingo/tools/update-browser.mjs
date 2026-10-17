@@ -7,7 +7,7 @@ import { seedFixture } from './browser-fixture.mjs';
 export async function runUpdateBrowser(engine) {
   const { version } = JSON.parse(await readFile(new URL('../package.json', import.meta.url)));
   const source = await readFile(new URL('../public/sw.js', import.meta.url), 'utf8');
-  assert.ok(source.includes('-r1`'));
+  assert.match(source, /-r\d+`/);
   let revision = 'old';
   const basePath = '/AI_Projects/commute-lingo/';
   const server = await createServer({ basePath }), serve = server.listeners('request')[0];
@@ -15,7 +15,7 @@ export async function runUpdateBrowser(engine) {
   server.on('request', (request, response) => {
     if (new URL(request.url, 'http://localhost').pathname === basePath + 'sw.js') {
       response.writeHead(200, { 'Content-Type': 'text/javascript', 'Cache-Control': 'no-store' });
-      response.end(source.replace('-r1`', `-browser-${revision}\``));
+      response.end(source.replace(/-r\d+`/, `-browser-${revision}\``));
     } else void serve(request, response);
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -71,7 +71,7 @@ export async function runUpdateBrowser(engine) {
       assert.equal(saved.translation.cached, true); assert.equal(saved.translation.persisted, true);
       assert.equal(saved.trackCount, 1); assert.equal(saved.segments, 20);
       assert.equal(saved.blobSize, 120 * 32000 + 44); assert.equal(saved.otherCache, true);
-      assert.equal(saved.oldDocument, false); assert.equal(saved.audioPaused, true);
+      assert.equal(saved.oldDocument, false, 'Update must create a new document even when the app version and fragment are unchanged'); assert.equal(saved.audioPaused, true);
       console.log(JSON.stringify({ browser: 'chromium', updateWhilePlaying: 'DEFERRED', idleAutomaticUpdate: 'PASS', settingsAndAudioRetained: 'PASS' }));
     } finally { await context.close(); }
   } finally {

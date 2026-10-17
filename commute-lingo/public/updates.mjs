@@ -1,3 +1,12 @@
+export function reloadVersion(location, version) {
+  const target = new URL(location.href);
+  target.search = new URLSearchParams({ v: version });
+  // Replacing an identical URL with a fragment can keep the old document.
+  // Shell-only revisions therefore need an explicit full reload.
+  if (target.href === location.href) location.reload();
+  else location.replace(target.href);
+}
+
 export function workerMessage(worker, message, timeout = 3000) {
   return new Promise((resolve, reject) => {
     const channel = new MessageChannel();

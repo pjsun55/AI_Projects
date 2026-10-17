@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createUpdater, workerMessage } from '../public/updates.mjs';
+import { createUpdater, workerMessage, reloadVersion } from '../public/updates.mjs';
 
 function fixture(options = {}) {
   const sw = new EventTarget(), registration = new EventTarget();
@@ -62,4 +62,11 @@ test('worker messages return replies and time out without leaving MessagePorts o
   const result = await workerMessage({ postMessage(_, ports) { ports[0].postMessage({ ok: true }); } }, {}, 1000);
   assert.equal(result.ok, true);
   await assert.rejects(workerMessage({ postMessage() {} }, {}, 10), /逾時/);
+});
+
+test('shell-only updates reload the document; version upgrades retain path and view', () => {
+  const calls = [];
+  const location = { href: 'https://example.test/AI_Projects/commute-lingo/?v=0.2.9#settings', reload: () => calls.push('reload'), replace: value => calls.push(value) };
+  reloadVersion(location, '0.2.9'); assert.deepEqual(calls, ['reload']);
+  reloadVersion(location, '0.3.0'); assert.equal(calls[1], 'https://example.test/AI_Projects/commute-lingo/?v=0.3.0#settings');
 });
