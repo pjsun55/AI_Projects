@@ -1,6 +1,6 @@
 // CI only: use this app's locked Playwright dependency. No Mac install.
 import assert from 'node:assert/strict';
-import { chromium, webkit } from '@playwright/test';
+import { chromium, webkit, expect } from '@playwright/test';
 import { mkdir, mkdtemp, readFile } from 'node:fs/promises';
 import { createServer } from './server.mjs';
 const { version } = JSON.parse(await readFile(new URL('../package.json', import.meta.url)));
@@ -10,6 +10,7 @@ await new Promise((resolve, reject) => { server.once('error', reject); server.li
 const origin = `http://127.0.0.1:${server.address().port}`, url = `${origin}${basePath}?v=${version}`;
 const output = new URL('../.tmp/browser-results/', import.meta.url); await mkdir(output, { recursive: true });
 const failures = [];
+const translationFixture = '這是公開的版面測試資料。'.repeat(100);
 try {
   for (const [name, engine] of Object.entries({ chromium, webkit })) {
     const browser = name === 'webkit' ? null : await engine.launch();
@@ -23,13 +24,13 @@ try {
           ? await engine.launchPersistentContext(await mkdtemp(new URL('../.tmp/webkit-profile-', import.meta.url).pathname), options)
           : await browser.newContext(options);
         const page = await context.newPage(), errors = [];
-        let phase = 'fixture-storage', offlineState;
+        let phase = 'fixture-storage', offlineState, layoutState;
         try {
         page.on('pageerror', error => errors.push(error.message));
         await context.route('**/*', route => {
           const target = new URL(route.request().url());
           if (target.origin === origin) return route.continue();
-          if (target.hostname === 'api.mymemory.translated.net') return route.fulfill({ json: { responseStatus: 200, responseData: { translatedText: '這是公開的版面測試資料。'.repeat(100) } } });
+          if (target.hostname === 'api.mymemory.translated.net') return route.fulfill({ json: { responseStatus: 200, responseData: { translatedText: translationFixture } } });
           return route.abort(); // No private data or fixture audio leaves CI.
         });
         await page.goto(url);
@@ -55,6 +56,7 @@ try {
         await page.waitForFunction(() => !document.getElementById('start-import').disabled && document.querySelector('#playlist-tracks .track-main'));
         phase = 'layout';
         for (const size of ['normal', 'large', 'xlarge']) {
+          phase = `caption-layout-${size}`;
           await page.locator('[data-tab="settings"]').click();
           await page.locator('#setting-subtitles').selectOption(size);
           await page.locator('#settings-form button[type=submit]').click();
@@ -76,13 +78,19 @@ try {
           await page.screenshot({ path: new URL(`${name}-${viewport.width}-${size}-captions.png`, output).pathname });
           // Keyboard translation reaches the same long-press action, using a fake service.
           await page.locator('.sentence-text').first().focus(); await page.keyboard.press('Enter');
-          await page.waitForFunction(() => document.getElementById('translation-text').textContent.length > 0);
-          const translated = await page.evaluate(() => {
-            const panel = document.getElementById('translation-panel'), sheet = document.getElementById('player'), list = document.getElementById('subtitle-list');
-            return { bottom: panel.getBoundingClientRect().bottom, sheetBottom: sheet.getBoundingClientRect().bottom, captionHeight: list.clientHeight,
-              scrolls: panel.scrollHeight > panel.clientHeight, equalFonts: getComputedStyle(document.getElementById('translation-text')).fontSize === getComputedStyle(document.getElementById('translation-original')).fontSize };
-          });
-          assert.ok(translated.bottom <= translated.sheetBottom + 1 && translated.captionHeight >= 40 && translated.scrolls && translated.equalFonts, JSON.stringify({ name, viewport, size, translated }));
+          phase = `translation-layout-${size}`;
+          await expect(page.locator('#translation-text')).toHaveText(translationFixture);
+          // Require both complete fixture content and settled scroll geometry.
+          // Poll the same layout requirements rather than sampling once.
+          await expect.poll(async () => {
+            layoutState = await page.evaluate(() => {
+              const panel = document.getElementById('translation-panel'), sheet = document.getElementById('player'), list = document.getElementById('subtitle-list');
+              return { bottom: panel.getBoundingClientRect().bottom, sheetBottom: sheet.getBoundingClientRect().bottom, captionHeight: list.clientHeight,
+                scrollHeight: panel.scrollHeight, clientHeight: panel.clientHeight, textLength: document.getElementById('translation-text').textContent.length,
+                scrolls: panel.scrollHeight > panel.clientHeight, equalFonts: getComputedStyle(document.getElementById('translation-text')).fontSize === getComputedStyle(document.getElementById('translation-original')).fontSize };
+            });
+            return layoutState.bottom <= layoutState.sheetBottom + 1 && layoutState.captionHeight >= 40 && layoutState.scrolls && layoutState.equalFonts;
+          }, { message: `${name} ${viewport.width} ${size}: long translation must scroll and preserve readable captions` }).toBe(true);
           await page.screenshot({ path: new URL(`${name}-${viewport.width}-${size}-translation.png`, output).pathname });
           await page.locator('#player-play').click();
           assert.equal(await page.locator('#translation-panel').isVisible(), false);
@@ -139,7 +147,7 @@ try {
         await page.screenshot({ path: new URL(`${name}-${viewport.width}.png`, output).pathname });
         } catch (error) {
           await page.screenshot({ path: new URL(`${name}-${viewport.width}-failure.png`, output).pathname }).catch(() => {});
-          failures.push(new Error(JSON.stringify({ browser: name, viewport, phase, offlineState, message: error.message }), { cause: error }));
+          failures.push(new Error(JSON.stringify({ browser: name, viewport, phase, offlineState, layoutState, message: error.message }), { cause: error }));
         } finally { await context.close(); }
       }
     } finally { await browser?.close(); }
