@@ -1,5 +1,5 @@
 const PREFIX = 'commute-lingo-shell-';
-const VERSION = '0.2.7';
+const VERSION = '0.2.8';
 const CACHE = `${PREFIX}${VERSION}-r1`;
 const ASSETS = ['./', `./?v=${VERSION}`, './index.html', './icon.svg',
   ...['journey', 'dialogue', 'sunrise'].flatMap(name => [`./icon-${name}.svg`, `./icon-${name}-192.png`, `./icon-${name}-512.png`, `./manifest-${name}.webmanifest?v=${VERSION}`]),

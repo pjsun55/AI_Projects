@@ -1,7 +1,7 @@
-import { appleLookupURL, normalizeSegments, checkDecodedAudio } from './core.mjs?v=0.2.7';
-import { checkDuration } from './library.mjs?v=0.2.7';
-import { isMP3, decodeInWorker } from './decode.mjs?v=0.2.7';
-import { publicAudioURL, readJSON } from './network.mjs?v=0.2.7';
+import { appleLookupURL, normalizeSegments, checkDecodedAudio } from './core.mjs?v=0.2.8';
+import { checkDuration } from './library.mjs?v=0.2.8';
+import { isMP3, decodeInWorker } from './decode.mjs?v=0.2.8';
+import { publicAudioURL, readJSON } from './network.mjs?v=0.2.8';
 
 const MAX_BYTES = 250 * 1024 * 1024;
 const cancelled = signal => { if (signal?.aborted) throw new DOMException('已取消', 'AbortError'); };
@@ -72,7 +72,7 @@ export function audioDuration(blob, { signal, AudioClass = Audio, urlAPI = URL }
     probe.preload = 'metadata'; probe.src = url;
   });
 }
-export function workerTranscript(samples, { language, model, signal, progress = () => {}, createWorker = () => new Worker(new URL('./transcriber.mjs?v=0.2.7', import.meta.url), { type: 'module' }) } = {}) {
+export function workerTranscript(samples, { language, model, signal, progress = () => {}, createWorker = () => new Worker(new URL('./transcriber.mjs?v=0.2.8', import.meta.url), { type: 'module' }) } = {}) {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) { reject(new DOMException('已取消', 'AbortError')); return; }
     const worker = createWorker(); let settled = false;

@@ -68,8 +68,8 @@ try {
   audio.play = async () => { paused = false; audio.dispatchEvent(event('play')); };
   audio.pause = () => { if (!paused) { paused = true; audio.dispatchEvent(event('pause')); } };
   audio.load = () => { audio.currentTime = 0; };
-  const fakeCaches = new Map([['commute-lingo-models-v1', true], ['another-app-models', true], ['commute-lingo-shell-0.2.7-r1', true]]);
-  const location = { href: 'https://example.test/commute-lingo/?v=0.2.7', hash: '' };
+  const fakeCaches = new Map([['commute-lingo-models-v1', true], ['another-app-models', true], ['commute-lingo-shell-0.2.8-r1', true]]);
+  const location = { href: 'https://example.test/commute-lingo/?v=0.2.8', hash: '' };
   const screen = { width: 393, height: 852, orientation: { type: 'portrait-primary', addEventListener() {} } };
   const fixtureSentence = 'While the train moves through the city and the morning sun fills the windows, I listen to a familiar story and notice the expressions I missed yesterday, then I repeat a useful sentence quietly and save the lesson for another journey.';
   const translatedTexts = [];
@@ -94,8 +94,8 @@ try {
     terminate() { this.onmessage = null; }
   }
   Object.assign(context, { document, window, location, history: { replaceState(_, __, hash) { location.hash = hash; } }, screen, matchMedia: () => ({ matches: true }), navigator: { storage: { estimate: async () => ({ usage: 1024, quota: 1000000000 }), persisted: async () => false, persist: async () => false }, mediaSession: { setActionHandler() {}, setPositionState() {} } }, caches: { keys: async () => [...fakeCaches.keys()], delete: async key => fakeCaches.delete(key) }, indexedDB: fake.namespace.indexedDB, IDBKeyRange: fake.namespace.IDBKeyRange, Audio: Probe, OfflineAudioContext: Context, Worker, fetch: runtimeFetch });
-  await evaluate(await load(new URL('../public/app.mjs?v=0.2.7', import.meta.url).href));
-  const storageModule = (await load(new URL('../public/storage.mjs?v=0.2.7', import.meta.url).href)).namespace;
+  await evaluate(await load(new URL('../public/app.mjs?v=0.2.8', import.meta.url).href));
+  const storageModule = (await load(new URL('../public/storage.mjs?v=0.2.8', import.meta.url).href)).namespace;
   const library = () => storageModule.read('library-v2');
   const click = id => $(id).dispatchEvent(event('click'));
   const submit = id => $(id).dispatchEvent(event('submit'));
@@ -163,7 +163,7 @@ try {
   check(translatedTexts[0] === fixtureSentence && $('translation-original').textContent === fixtureSentence && cue.classList.contains('translating') && !cue.nextElementSibling.classList.contains('translating'), 'long-pressing any clause translates and marks only its complete sentence');
   cue.dispatchEvent(event('click'));
   check(audio.paused && !$('translation-panel').hidden, 'the click after a long press never seeks or resumes playback');
-  const translationModule = (await load(new URL('../public/translation.mjs?v=0.2.7', import.meta.url).href)).namespace;
+  const translationModule = (await load(new URL('../public/translation.mjs?v=0.2.8', import.meta.url).href)).namespace;
   const freshTranslator = translationModule.createTranslator({ load: key => storageModule.read(`translation:${key}`), save: (key, entry) => storageModule.write(`translation:${key}`, entry), fetchImpl: async () => { throw new Error('No network expected after persisted cache'); } });
   const restored = await freshTranslator.translate($('translation-original').textContent, 'en');
   check(restored.cached && restored.persisted && translated === 1, 'a fresh translation client reads saved Chinese from IndexedDB without an external request');

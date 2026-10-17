@@ -1,10 +1,8 @@
-// CI only: reuse the monorepo's locked Playwright dependency. No Mac install.
+// CI only: use this app's locked Playwright dependency. No Mac install.
 import assert from 'node:assert/strict';
-import { createRequire } from 'node:module';
+import { chromium, webkit } from '@playwright/test';
 import { mkdir, readFile } from 'node:fs/promises';
 import { createServer } from './server.mjs';
-const require = createRequire(new URL('../../ios-pwa-lab/package.json', import.meta.url));
-const { chromium, webkit } = require('@playwright/test');
 const { version } = JSON.parse(await readFile(new URL('../package.json', import.meta.url)));
 const basePath = '/AI_Projects/commute-lingo/';
 const server = await createServer({ basePath });

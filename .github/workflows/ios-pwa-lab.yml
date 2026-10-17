@@ -2,9 +2,9 @@ name: iPhone PWA apps tests and Pages
 on:
   push:
     branches: [main]
-    paths: ['ios-pwa-lab/public/**', 'ios-pwa-lab/tests/**', 'ios-pwa-lab/tools/**', 'ios-pwa-lab/package*.json', 'ios-pwa-lab/playwright.config.js', 'commute-lingo/public/**', 'commute-lingo/tests/**', 'commute-lingo/tools/**', 'commute-lingo/package.json', '.github/workflows/ios-pwa-lab.yml']
+    paths: ['ios-pwa-lab/public/**', 'ios-pwa-lab/tests/**', 'ios-pwa-lab/tools/**', 'ios-pwa-lab/package*.json', 'ios-pwa-lab/playwright.config.js', 'commute-lingo/public/**', 'commute-lingo/tests/**', 'commute-lingo/tools/**', 'commute-lingo/package*.json', '.github/workflows/ios-pwa-lab.yml']
   pull_request:
-    paths: ['ios-pwa-lab/public/**', 'ios-pwa-lab/tests/**', 'ios-pwa-lab/tools/**', 'ios-pwa-lab/package*.json', 'ios-pwa-lab/playwright.config.js', 'commute-lingo/public/**', 'commute-lingo/tests/**', 'commute-lingo/tools/**', 'commute-lingo/package.json', '.github/workflows/ios-pwa-lab.yml']
+    paths: ['ios-pwa-lab/public/**', 'ios-pwa-lab/tests/**', 'ios-pwa-lab/tools/**', 'ios-pwa-lab/package*.json', 'ios-pwa-lab/playwright.config.js', 'commute-lingo/public/**', 'commute-lingo/tests/**', 'commute-lingo/tools/**', 'commute-lingo/package*.json', '.github/workflows/ios-pwa-lab.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -12,7 +12,25 @@ concurrency:
   group: iphone-pwa-pages-${{ github.ref }}
   cancel-in-progress: false
 jobs:
-  test:
+  changes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      lab: ${{ steps.detect.outputs.lab }}
+      commute: ${{ steps.detect.outputs.commute }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+      - run: node commute-lingo/tools/changed-apps.mjs
+        id: detect
+  lab:
+    needs: changes
+    if: needs.changes.outputs.lab == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     defaults:
@@ -29,34 +47,69 @@ jobs:
       - run: npm test
       - run: npx playwright install --with-deps chromium webkit
       - run: npm run test:browser
-      - name: CommuteLingo Node tests
-        working-directory: commute-lingo
-        run: npm test
-      - name: CommuteLingo interaction and storage simulation
-        working-directory: commute-lingo
-        run: node --experimental-vm-modules tools/ui-smoke.mjs
-      - name: CommuteLingo Chromium and WebKit mobile layouts
-        working-directory: commute-lingo
-        run: node tools/browser-smoke.mjs
       - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         if: ${{ !cancelled() }}
         with:
-          name: iphone-pwa-tests
+          name: lab-tests
           path: |
             ios-pwa-lab/playwright-report/
             ios-pwa-lab/test-results/
-            commute-lingo/.tmp/browser-results/
           retention-days: 7
-      - run: node ../commute-lingo/tools/package-pages.mjs
-        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+  commute:
+    needs: changes
+    if: needs.changes.outputs.commute == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: commute-lingo
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+      - run: npm ci
+      - run: npm test
+      - name: Interaction and storage simulation
+        run: node --experimental-vm-modules tools/ui-smoke.mjs
+      - run: npx playwright install --with-deps chromium webkit
+      - run: npm run test:browser
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        if: ${{ !cancelled() }}
+        with:
+          name: commute-tests
+          path: commute-lingo/.tmp/browser-results/
+          retention-days: 7
+  package:
+    needs: [changes, lab, commute]
+    if: >-
+      ${{ always() && !cancelled() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' &&
+          needs.changes.result == 'success' &&
+          (needs.changes.outputs.lab == 'true' || needs.changes.outputs.commute == 'true') &&
+          ((needs.changes.outputs.lab == 'true' && needs.lab.result == 'success') ||
+           (needs.changes.outputs.lab == 'false' && needs.lab.result == 'skipped')) &&
+          ((needs.changes.outputs.commute == 'true' && needs.commute.result == 'success') ||
+           (needs.changes.outputs.commute == 'false' && needs.commute.result == 'skipped')) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+      - run: node commute-lingo/tools/package-pages.mjs
       - uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
-        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         with:
           path: commute-lingo/.tmp/pages-site
   deploy:
-    needs: test
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: package
+    if: ${{ always() && !cancelled() && needs.package.result == 'success' }}
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     permissions:
       pages: write
       id-token: write

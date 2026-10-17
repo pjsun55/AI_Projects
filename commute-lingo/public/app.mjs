@@ -1,12 +1,12 @@
-import { formatTime, findActive, transcriptCoverage, toSRT, sentenceTexts } from './core.mjs?v=0.2.7';
-import * as storage from './storage.mjs?v=0.2.7';
-import { createTranslator } from './translation.mjs?v=0.2.7';
-import { DEFAULT_SETTINGS, LIBRARY_KEY, emptyLibrary, validateSettings, title, tracksIn, addAlbum, removeAlbum, removeTrack, rename, placeTrack, changeSettings, libraryBytes, playbackQueue, sentenceTarget, sentencesFor, legacyLibrary, newId } from './library.mjs?v=0.2.7';
-import { importPodcast, transcribeSavedAudio } from './source.mjs?v=0.2.7';
-import { icon, fillIcons } from './icons.mjs?v=0.2.7';
-import { longPress, isMobileLandscape } from './gestures.mjs?v=0.2.7';
-import { zipFiles } from './backup.mjs?v=0.2.7';
-import { createSubtitleFollow, subtitleScrollTop, sentenceReadingParts } from './subtitles.mjs?v=0.2.7';
+import { formatTime, findActive, transcriptCoverage, toSRT, sentenceTexts } from './core.mjs?v=0.2.8';
+import * as storage from './storage.mjs?v=0.2.8';
+import { createTranslator } from './translation.mjs?v=0.2.8';
+import { DEFAULT_SETTINGS, LIBRARY_KEY, emptyLibrary, validateSettings, title, tracksIn, addAlbum, removeAlbum, removeTrack, rename, placeTrack, changeSettings, libraryBytes, playbackQueue, sentenceTarget, sentencesFor, legacyLibrary, newId } from './library.mjs?v=0.2.8';
+import { importPodcast, transcribeSavedAudio } from './source.mjs?v=0.2.8';
+import { icon, fillIcons } from './icons.mjs?v=0.2.8';
+import { longPress, isMobileLandscape } from './gestures.mjs?v=0.2.8';
+import { zipFiles } from './backup.mjs?v=0.2.8';
+import { createSubtitleFollow, subtitleScrollTop, sentenceReadingParts } from './subtitles.mjs?v=0.2.8';
 
 const $ = id => document.getElementById(id);
 const audio = $('audio');
@@ -141,7 +141,7 @@ function applyAppearance(settings) {
   document.documentElement.style.setProperty('--subtitle-size', { normal: '1.15rem', large: '1.4rem', xlarge: '1.7rem' }[settings.subtitleSize]);
   $('brand-icon').src = `./icon-${settings.icon}.svg`; $('favicon').href = `./icon-${settings.icon}.svg`;
   $('touch-icon').href = `./icon-${settings.icon}-192.png`;
-  $('manifest').href = `./manifest-${settings.icon}.webmanifest?v=0.2.7`;
+  $('manifest').href = `./manifest-${settings.icon}.webmanifest?v=0.2.8`;
 }
 async function refreshStorage() {
   const total = libraryBytes(state.library);
@@ -594,7 +594,7 @@ async function offlineStatus() {
     const check = () => {
       const channel = new MessageChannel();
       const timer = setTimeout(() => { channel.port1.close(); $('offline-status').textContent = '新版可在線使用；請在保存後關閉舊分頁再開啟，以更新離線頁面。'; }, 2000);
-      channel.port1.onmessage = ({ data }) => { clearTimeout(timer); channel.port1.close(); $('offline-status').textContent = data.version === '0.2.7' && data.ready ? '頁面已可離線使用；已收藏的音訊與快取翻譯可離線讀取，新匯入與新翻譯需要連線。' : '新版可在線使用，離線頁面尚待更新。'; };
+      channel.port1.onmessage = ({ data }) => { clearTimeout(timer); channel.port1.close(); $('offline-status').textContent = data.version === '0.2.8' && data.ready ? '頁面已可離線使用；已收藏的音訊與快取翻譯可離線讀取，新匯入與新翻譯需要連線。' : '新版可在線使用，離線頁面尚待更新。'; };
       registration.active?.postMessage({ type: 'CACHE_VERSION' }, [channel.port2]);
     };
     navigator.serviceWorker.addEventListener('controllerchange', check); check();

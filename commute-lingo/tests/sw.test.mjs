@@ -28,17 +28,17 @@ test('offline readiness requires every versioned asset, not just an active worke
   const f = await fixture(); let result;
   const message = () => f.run('message', { data: { type: 'CACHE_VERSION' }, ports: [{ postMessage: value => { result = value; } }] });
   await message(); assert.equal(result.ready, false);
-  await f.run('install'); await message(); assert.equal(result.version, '0.2.7'); assert.equal(result.ready, true);
+  await f.run('install'); await message(); assert.equal(result.version, '0.2.8'); assert.equal(result.ready, true);
   const store = [...f.stores.values()][0];
-  assert.ok(store.has(f.scope + '?v=0.2.7'));
-  store.delete(f.scope + 'decoder.mjs?v=0.2.7');
+  assert.ok(store.has(f.scope + '?v=0.2.8'));
+  store.delete(f.scope + 'decoder.mjs?v=0.2.8');
   await message(); assert.equal(result.ready, false);
 });
 test('versioned module requests are served from matching cache and other app paths pass through', async () => {
   const f = await fixture(); await f.run('install');
   let response;
-  f.handlers.get('fetch')({ request: { method: 'GET', url: f.scope + 'asr.mjs?v=0.2.7' }, respondWith: p => { response = p; } });
-  assert.equal((await response).asset, './asr.mjs?v=0.2.7');
+  f.handlers.get('fetch')({ request: { method: 'GET', url: f.scope + 'asr.mjs?v=0.2.8' }, respondWith: p => { response = p; } });
+  assert.equal((await response).asset, './asr.mjs?v=0.2.8');
   response = undefined;
   f.handlers.get('fetch')({ request: { method: 'GET', url: 'https://example.test/another-app/app.mjs' }, respondWith: p => { response = p; } });
   assert.equal(response, undefined);
