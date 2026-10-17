@@ -68,8 +68,8 @@ try {
   audio.play = async () => { paused = false; audio.dispatchEvent(event('play')); };
   audio.pause = () => { if (!paused) { paused = true; audio.dispatchEvent(event('pause')); } };
   audio.load = () => { audio.currentTime = 0; };
-  const fakeCaches = new Map([['commute-lingo-models-v1', true], ['another-app-models', true], ['commute-lingo-shell-0.2.8-r1', true]]);
-  const location = { href: 'https://example.test/commute-lingo/?v=0.2.8', hash: '' };
+  const fakeCaches = new Map([['commute-lingo-models-v1', true], ['another-app-models', true], ['commute-lingo-shell-0.2.9-r1', true]]);
+  const location = { href: 'https://example.test/commute-lingo/?v=0.2.9', hash: '' };
   const screen = { width: 393, height: 852, orientation: { type: 'portrait-primary', addEventListener() {} } };
   const fixtureSentence = 'While the train moves through the city and the morning sun fills the windows, I listen to a familiar story and notice the expressions I missed yesterday, then I repeat a useful sentence quietly and save the lesson for another journey.';
   const translatedTexts = [];
@@ -94,13 +94,14 @@ try {
     terminate() { this.onmessage = null; }
   }
   Object.assign(context, { document, window, location, history: { replaceState(_, __, hash) { location.hash = hash; } }, screen, matchMedia: () => ({ matches: true }), navigator: { storage: { estimate: async () => ({ usage: 1024, quota: 1000000000 }), persisted: async () => false, persist: async () => false }, mediaSession: { setActionHandler() {}, setPositionState() {} } }, caches: { keys: async () => [...fakeCaches.keys()], delete: async key => fakeCaches.delete(key) }, indexedDB: fake.namespace.indexedDB, IDBKeyRange: fake.namespace.IDBKeyRange, Audio: Probe, OfflineAudioContext: Context, Worker, fetch: runtimeFetch });
-  await evaluate(await load(new URL('../public/app.mjs?v=0.2.8', import.meta.url).href));
-  const storageModule = (await load(new URL('../public/storage.mjs?v=0.2.8', import.meta.url).href)).namespace;
+  await evaluate(await load(new URL('../public/app.mjs?v=0.2.9', import.meta.url).href));
+  const storageModule = (await load(new URL('../public/storage.mjs?v=0.2.9', import.meta.url).href)).namespace;
   const library = () => storageModule.read('library-v2');
   const click = id => $(id).dispatchEvent(event('click'));
   const submit = id => $(id).dispatchEvent(event('submit'));
   const confirm = async () => { submit('dialog-form'); await until(() => !$('action-dialog').open || $('dialog-error').textContent, 'dialog saved or error'); if ($('dialog-error').textContent) throw new Error($('dialog-error').textContent); };
   await until(() => !$('start-import').disabled, 'app boot');
+  check($('setting-minutes').value === '25', 'new libraries default to 25 minutes');
   check($('view-playlist').hidden === false && $('subtitles-panel').hidden, 'playlist opens with subtitles off');
   check(!document.querySelector('input[type=file]'), 'manual file import is absent');
   check(!$('icon-options') && $('brand-icon').getAttribute('src').includes('sunrise') && $('gemini-key').disabled, 'fixed orange identity has no appearance switcher and Gemini remains inactive');
@@ -116,8 +117,8 @@ try {
   $('edit-title').value = 'Edited album'; await confirm();
   check((await library()).albums[0].title === 'Edited album', 'visible album edit button opens and persists the name');
   const sourceLink = 'https://podcasts.apple.com/tw/podcast/example/id189330872?i=1000796641961';
-  fixtureMillis = 1200001; $('source-url').value = sourceLink; submit('import-form');
-  await until(() => $('import-message').textContent.includes('超過目前 20'), 'oversized source rejected');
+  fixtureMillis = 1500001; $('source-url').value = sourceLink; submit('import-form');
+  await until(() => $('import-message').textContent.includes('超過目前 25'), 'oversized source rejected');
   check(mediaDownloads === 0 && (await library()).tracks.length === 0, 'oversized source stops before media download and leaves the library unchanged');
   fixtureMillis = 4000; failWorker = true; submit('import-form');
   await until(() => $('import-message').textContent.includes('Simulated inference failure'), 'model error displayed');
@@ -163,10 +164,15 @@ try {
   check(translatedTexts[0] === fixtureSentence && $('translation-original').textContent === fixtureSentence && cue.classList.contains('translating') && !cue.nextElementSibling.classList.contains('translating'), 'long-pressing any clause translates and marks only its complete sentence');
   cue.dispatchEvent(event('click'));
   check(audio.paused && !$('translation-panel').hidden, 'the click after a long press never seeks or resumes playback');
-  const translationModule = (await load(new URL('../public/translation.mjs?v=0.2.8', import.meta.url).href)).namespace;
+  const translationModule = (await load(new URL('../public/translation.mjs?v=0.2.9', import.meta.url).href)).namespace;
   const freshTranslator = translationModule.createTranslator({ load: key => storageModule.read(`translation:${key}`), save: (key, entry) => storageModule.write(`translation:${key}`, entry), fetchImpl: async () => { throw new Error('No network expected after persisted cache'); } });
   const restored = await freshTranslator.translate($('translation-original').textContent, 'en');
   check(restored.cached && restored.persisted && translated === 1, 'a fresh translation client reads saved Chinese from IndexedDB without an external request');
+  const pausedAt = audio.currentTime;
+  click('translation-close'); await until(() => !audio.paused, 'closing translation resumes playback');
+  check($('translation-panel').hidden && audio.currentTime === pausedAt, 'closing translation resumes the same track at the paused position');
+  cue.dispatchEvent(event('keydown', { key: 'Enter' }));
+  await until(() => audio.paused && !$('translation-panel').hidden && $('translation-text').textContent, 'translation reopened from cache');
   subtitleList.scrollTop = 450;
   click('player-play'); await until(() => !audio.paused, 'resume playback');
   check($('translation-panel').hidden, 'pressing play immediately dismisses the translation');

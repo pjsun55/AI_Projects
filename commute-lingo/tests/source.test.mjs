@@ -5,7 +5,7 @@ import { DEFAULT_SETTINGS } from '../public/library.mjs';
 const link = 'https://podcasts.apple.com/tw/podcast/example/id189330872?i=1000796641961';
 test('catalog duration over the preference rejects before any media download', async () => {
   let calls = 0;
-  await assert.rejects(podcastSource(link, DEFAULT_SETTINGS, { fetchImpl: async () => { calls++; return Response.json({ results: [{ trackId: 1000796641961, trackName: 'Example', episodeUrl: 'https://media.example.com/audio.mp3', trackTimeMillis: 1200001 }] }); } }), /超過目前 20/);
+  await assert.rejects(podcastSource(link, DEFAULT_SETTINGS, { fetchImpl: async () => { calls++; return Response.json({ results: [{ trackId: 1000796641961, trackName: 'Example', episodeUrl: 'https://media.example.com/audio.mp3', trackTimeMillis: 1500001 }] }); } }), /超過目前 25/);
   assert.equal(calls, 1);
 });
 test('media download rejects partial responses, HTML, and declared truncation', async () => {
@@ -40,7 +40,7 @@ test('a saved audio repair decodes the existing Blob without lookup or download 
   await assert.rejects(transcribeSavedAudio(blob, DEFAULT_SETTINGS, truncated.dependencies), /解碼長度/);
 });
 test('measured duration is checked before decoder or ASR, even without catalog duration', async () => {
-  const { dependencies } = pipeline({ durationOf: async () => 1200.01, decode: async () => { throw new Error('must not decode'); } });
+  const { dependencies } = pipeline({ durationOf: async () => 1500.01, decode: async () => { throw new Error('must not decode'); } });
   await assert.rejects(importPodcast(link, DEFAULT_SETTINGS, dependencies), /超過/);
 });
 test('errors at each stage terminate without proceeding; a truncated ASR result cannot succeed', async () => {

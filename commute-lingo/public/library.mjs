@@ -1,7 +1,7 @@
-import { normalizeSegments, groupSentences } from './core.mjs?v=0.2.8';
+import { normalizeSegments, groupSentences } from './core.mjs?v=0.2.9';
 
 export const LIBRARY_KEY = 'library-v2';
-export const DEFAULT_SETTINGS = Object.freeze({ albumLimit: 3, trackLimit: 3, maxMinutes: 20, subtitleSize: 'normal', icon: 'sunrise', language: 'en', model: 'tiny' });
+export const DEFAULT_SETTINGS = Object.freeze({ albumLimit: 3, trackLimit: 3, maxMinutes: 25, autoUpdate: true, subtitleSize: 'normal', icon: 'sunrise', language: 'en', model: 'tiny' });
 export const ICONS = [
   { id: 'journey', title: '聲音旅程', caption: '沿著聲音，抵達下一站', color: '#963ee7' },
   { id: 'dialogue', title: '一句世界', caption: '耳朵聽見，對話展開', color: '#147c8b' },
@@ -20,6 +20,7 @@ export function validateSettings(value) {
   if (!ICONS.some(icon => icon.id === settings.icon)) throw new Error('圖示選擇無效。');
   settings.icon = 'sunrise'; // Retain old preference compatibility, with the chosen fixed identity.
   if (!['en', 'ja', 'ko', 'es', 'fr', 'de'].includes(settings.language) || !['tiny', 'base'].includes(settings.model)) throw new Error('轉錄設定無效。');
+  if (typeof settings.autoUpdate !== 'boolean') throw new Error('自動更新設定無效。');
   // Only known preferences are persisted; credentials are never part of a library.
   return Object.fromEntries(Object.keys(DEFAULT_SETTINGS).map(key => [key, settings[key]]));
 }
@@ -79,7 +80,7 @@ export function legacyLibrary(saved) {
   const library = addAlbum(emptyLibrary(), '上次的通勤', 'legacy-album');
   const duration = saved.doc.audio?.duration;
   if (!Number.isFinite(duration) || duration <= 0 || duration > 35 * 60) return null;
-  library.settings.maxMinutes = Math.max(20, Math.ceil(duration / 60));
+  library.settings.maxMinutes = Math.max(DEFAULT_SETTINGS.maxMinutes, Math.ceil(duration / 60));
   const track = { id: 'legacy-track', title: saved.name || '上次保存的節目', albumId: 'legacy-album', duration, size: saved.file.size, type: saved.file.type, language: saved.doc.language || 'en', segments: normalizeSegments(saved.doc.segments, duration), metrics: saved.doc.metrics ?? null, source: 'legacy', createdAt: Date.now(), position: 0 };
   library.tracks.push(track);
   return { library, audio: { id: track.id, blob: saved.file }, translations: saved.doc.translations || [] };

@@ -9,7 +9,7 @@ export const PUBLIC_FILES = Object.freeze({
   'commute-lingo': [
     'index.html', 'styles.css', 'sw.js', 'icon.svg', 'manifest.webmanifest',
     ...['journey', 'dialogue', 'sunrise'].flatMap(name => [`icon-${name}.svg`, `icon-${name}-192.png`, `icon-${name}-512.png`, `manifest-${name}.webmanifest`]),
-    ...['app', 'asr', 'backup', 'core', 'decode', 'decoder', 'gestures', 'icons', 'library', 'network', 'source', 'storage', 'subtitles', 'transcriber', 'translation'].map(name => `${name}.mjs`)
+    ...['app', 'asr', 'backup', 'core', 'decode', 'decoder', 'gestures', 'icons', 'library', 'network', 'source', 'storage', 'subtitles', 'transcriber', 'translation', 'updates'].map(name => `${name}.mjs`)
   ],
   'ios-pwa-lab': ['index.html', 'styles.css', 'app.js', 'core.js', 'catalog.js', 'storage.js', 'probes.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'worker.js', 'sw.js', 'network-test.json']
 });

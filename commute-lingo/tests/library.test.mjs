@@ -4,14 +4,14 @@ import { emptyLibrary, DEFAULT_SETTINGS, validateSettings, checkDuration, addAlb
 
 const track = (id, seconds = 60) => ({ id, title: `Audio ${id}`, duration: seconds, size: 1234, segments: [{ start: 0, end: seconds, text: 'One complete sentence.' }] });
 function albumLibrary() { return addAlbum(emptyLibrary(), 'On the train', 'a'); }
-test('defaults and hard limits match the requested 3 albums / 3 per album / 20 minutes', () => {
-  assert.deepEqual([DEFAULT_SETTINGS.albumLimit, DEFAULT_SETTINGS.trackLimit, DEFAULT_SETTINGS.maxMinutes], [3, 3, 20]);
+test('defaults and hard limits match the requested 3 albums / 3 per album / 25 minutes', () => {
+  assert.deepEqual([DEFAULT_SETTINGS.albumLimit, DEFAULT_SETTINGS.trackLimit, DEFAULT_SETTINGS.maxMinutes], [3, 3, 25]);
   assert.doesNotThrow(() => validateSettings({ albumLimit: 5, trackLimit: 5, maxMinutes: 35 }));
   for (const input of [{ albumLimit: 6 }, { trackLimit: 0 }, { maxMinutes: 36 }, { maxMinutes: 20.5 }, { model: 'unknown' }, { icon: 'unknown' }]) assert.throws(() => validateSettings(input));
   assert.equal('apiKey' in validateSettings({ apiKey: 'test-placeholder' }), false);
   assert.equal(validateSettings({ icon: 'dialogue' }).icon, 'sunrise'); // Earlier icon preferences adopt the fixed orange choice.
-  assert.doesNotThrow(() => checkDuration(1200, DEFAULT_SETTINGS));
-  assert.throws(() => checkDuration(1200.01, DEFAULT_SETTINGS), /超過/);
+  assert.doesNotThrow(() => checkDuration(1500, DEFAULT_SETTINGS));
+  assert.throws(() => checkDuration(1500.01, DEFAULT_SETTINGS), /超過/);
 });
 test('album creation enforces quota and rename preserves audio links', () => {
   let library = albumLibrary(); library = addAlbum(library, 'B', 'b'); library = addAlbum(library, 'C', 'c');
@@ -35,7 +35,7 @@ test('episode quotas are per album; a full album requires an explicit same-album
 });
 test('failed placement does not delete the old audio or album; lengths are rechecked at save', () => {
   let library = placeTrack(albumLibrary(), track('old'), 'a');
-  assert.throws(() => placeTrack(library, track('new', 1201), 'a', 'old'), /超過/);
+  assert.throws(() => placeTrack(library, track('new', 1501), 'a', 'old'), /超過/);
   assert.equal(library.tracks[0].id, 'old');
   assert.throws(() => placeTrack(library, { ...track('new'), segments: [] }, 'a', 'old'), /有效段落/);
   assert.equal(library.tracks[0].id, 'old');
@@ -67,7 +67,7 @@ test('album and single-episode queues are distinct; sentence navigation respects
 test('old saved 22-minute episode migrates intact with an explicitly adjusted length preference', () => {
   const saved = { file: new Blob(['example'], { type: 'audio/mpeg' }), name: 'Old episode', doc: { audio: { duration: 1335.64 }, language: 'en', segments: [{ start: 0, end: 1335.64, text: 'Existing saved words.' }] } };
   const result = legacyLibrary(saved);
-  assert.equal(result.library.settings.maxMinutes, 23); assert.equal(result.library.tracks[0].title, 'Old episode');
+  assert.equal(result.library.settings.maxMinutes, 25); assert.equal(result.library.tracks[0].title, 'Old episode');
   assert.equal(result.audio.blob, saved.file); assert.equal(result.library.tracks[0].segments[0].end, 1335.64);
   assert.equal(legacyLibrary({ ...saved, doc: { ...saved.doc, audio: { duration: 2200 } } }), null);
   assert.equal(legacyLibrary({ file: saved.file }), null);
