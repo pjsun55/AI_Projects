@@ -31,7 +31,7 @@ if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === imp
     if (/^[0-9a-f]{40}$/.test(base || '') && /^[0-9a-f]{40}$/.test(head || '') && !/^0+$/.test(base)) {
       try {
         const range = process.env.GITHUB_EVENT_NAME === 'pull_request' ? [base + '...' + head] : [base, head];
-        const names = execFileSync('git', ['diff', '--no-ext-diff', '--no-textconv', '--name-only', '-z', ...range], { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 }).split('\0').filter(Boolean);
+        const names = execFileSync('git', ['diff', '--no-ext-diff', '--no-textconv', '--no-renames', '--name-only', '-z', ...range], { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 }).split('\0').filter(Boolean);
         result = affectedApps(names);
       } catch { /* Unavailable history must never skip testing. */ }
     }
