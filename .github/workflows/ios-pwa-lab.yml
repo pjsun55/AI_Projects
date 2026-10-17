@@ -1,48 +1,58 @@
-name: iOS PWA Lab tests and Pages
+name: iPhone PWA apps tests and Pages
 on:
   push:
     branches: [main]
-    paths: ['ios-pwa-lab/public/**', 'ios-pwa-lab/tests/**', 'ios-pwa-lab/tools/**', 'ios-pwa-lab/package*.json', 'ios-pwa-lab/playwright.config.js', '.github/workflows/ios-pwa-lab.yml']
+    paths: ['ios-pwa-lab/public/**', 'ios-pwa-lab/tests/**', 'ios-pwa-lab/tools/**', 'ios-pwa-lab/package*.json', 'ios-pwa-lab/playwright.config.js', 'commute-lingo/public/**', 'commute-lingo/tests/**', 'commute-lingo/tools/**', 'commute-lingo/package.json', '.github/workflows/ios-pwa-lab.yml']
   pull_request:
-    paths: ['ios-pwa-lab/public/**', 'ios-pwa-lab/tests/**', 'ios-pwa-lab/tools/**', 'ios-pwa-lab/package*.json', 'ios-pwa-lab/playwright.config.js', '.github/workflows/ios-pwa-lab.yml']
+    paths: ['ios-pwa-lab/public/**', 'ios-pwa-lab/tests/**', 'ios-pwa-lab/tools/**', 'ios-pwa-lab/package*.json', 'ios-pwa-lab/playwright.config.js', 'commute-lingo/public/**', 'commute-lingo/tests/**', 'commute-lingo/tools/**', 'commute-lingo/package.json', '.github/workflows/ios-pwa-lab.yml']
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: ios-pwa-lab-${{ github.ref }}
-  cancel-in-progress: true
+  group: iphone-pwa-pages-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
   test:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: ios-pwa-lab
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '22'
       - run: npm ci
       - run: npm test
       - run: npx playwright install --with-deps chromium webkit
       - run: npm run test:browser
-      - uses: actions/upload-artifact@v5
+      - name: CommuteLingo Node tests
+        working-directory: commute-lingo
+        run: npm test
+      - name: CommuteLingo interaction and storage simulation
+        working-directory: commute-lingo
+        run: node --experimental-vm-modules tools/ui-smoke.mjs
+      - name: CommuteLingo Chromium and WebKit mobile layouts
+        working-directory: commute-lingo
+        run: node tools/browser-smoke.mjs
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         if: ${{ !cancelled() }}
         with:
-          name: ios-pwa-lab-tests
+          name: iphone-pwa-tests
           path: |
             ios-pwa-lab/playwright-report/
             ios-pwa-lab/test-results/
+            commute-lingo/.tmp/browser-results/
           retention-days: 7
-      - run: npm run package:site
+      - run: node ../commute-lingo/tools/package-pages.mjs
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-      - uses: actions/upload-pages-artifact@v4
+      - uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         with:
-          path: ios-pwa-lab/site-dist
+          path: commute-lingo/.tmp/pages-site
   deploy:
     needs: test
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
@@ -54,5 +64,5 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/deploy-pages@v4
+      - uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
         id: deployment

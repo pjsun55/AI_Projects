@@ -1,0 +1,52 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import vm from 'node:vm';
+import { readFile } from 'node:fs/promises';
+
+async function fixture() {
+  const handlers = new Map(), stores = new Map();
+  const scope = 'https://example.test/commute-lingo/';
+  const caches = {
+    async open(name) {
+      if (!stores.has(name)) stores.set(name, new Map());
+      const data = stores.get(name);
+      return {
+        async addAll(assets) { for (const asset of assets) data.set(new URL(asset, scope).href, { asset }); },
+        async match(request) { return data.get(typeof request === 'string' ? request : request.url); }
+      };
+    },
+    keys: async () => [...stores.keys()],
+    delete: async name => stores.delete(name)
+  };
+  const context = vm.createContext({ URL, caches, fetch: async request => ({ network: request.url }), self: { registration: { scope }, clients: { claim: async () => {} }, addEventListener: (name, fn) => handlers.set(name, fn) } });
+  vm.runInContext(await readFile(new URL('../public/sw.js', import.meta.url), 'utf8'), context);
+  async function run(name, data = {}) { let promise; handlers.get(name)({ ...data, waitUntil: p => { promise = p; } }); await promise; }
+  return { scope, stores, caches, handlers, run };
+}
+
+test('offline readiness requires every versioned asset, not just an active worker', async () => {
+  const f = await fixture(); let result;
+  const message = () => f.run('message', { data: { type: 'CACHE_VERSION' }, ports: [{ postMessage: value => { result = value; } }] });
+  await message(); assert.equal(result.ready, false);
+  await f.run('install'); await message(); assert.equal(result.version, '0.2.7'); assert.equal(result.ready, true);
+  const store = [...f.stores.values()][0];
+  assert.ok(store.has(f.scope + '?v=0.2.7'));
+  store.delete(f.scope + 'decoder.mjs?v=0.2.7');
+  await message(); assert.equal(result.ready, false);
+});
+test('versioned module requests are served from matching cache and other app paths pass through', async () => {
+  const f = await fixture(); await f.run('install');
+  let response;
+  f.handlers.get('fetch')({ request: { method: 'GET', url: f.scope + 'asr.mjs?v=0.2.7' }, respondWith: p => { response = p; } });
+  assert.equal((await response).asset, './asr.mjs?v=0.2.7');
+  response = undefined;
+  f.handlers.get('fetch')({ request: { method: 'GET', url: 'https://example.test/another-app/app.mjs' }, respondWith: p => { response = p; } });
+  assert.equal(response, undefined);
+});
+test('activation keeps model cache and other apps while retiring this app previous shell', async () => {
+  const f = await fixture();
+  await f.caches.open('commute-lingo-shell-0.1.0-r2'); await f.caches.open('commute-lingo-models-v1'); await f.caches.open('another-app-shell');
+  await f.run('install'); await f.run('activate');
+  assert.equal(f.stores.has('commute-lingo-shell-0.1.0-r2'), false);
+  assert.equal(f.stores.has('commute-lingo-models-v1'), true); assert.equal(f.stores.has('another-app-shell'), true);
+});
