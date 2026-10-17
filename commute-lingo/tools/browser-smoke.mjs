@@ -19,18 +19,23 @@ try {
         // WebKit's ephemeral data store rejects IndexedDB Blobs. Exercise the
         // ordinary persistent storage path using a fresh CI-only profile.
         // Profiles stay outside browser-results and are never uploaded.
-        const options = { viewport, isMobile: true, hasTouch: true };
+        // WebKit cannot route SW-owned requests. Keep its layout/API fixture
+        // test isolated; real SW/offline behavior is exercised in Chromium.
+        const options = { viewport, isMobile: true, hasTouch: true, serviceWorkers: name === 'webkit' ? 'block' : 'allow' };
         const context = name === 'webkit'
           ? await engine.launchPersistentContext(await mkdtemp(new URL('../.tmp/webkit-profile-', import.meta.url).pathname), options)
           : await browser.newContext(options);
         const page = await context.newPage(), errors = [];
-        let phase = 'fixture-storage', offlineState, layoutState;
+        let phase = 'fixture-storage', offlineState, layoutState, mockedTranslations = 0;
         try {
         page.on('pageerror', error => errors.push(error.message));
         await context.route('**/*', route => {
           const target = new URL(route.request().url());
           if (target.origin === origin) return route.continue();
-          if (target.hostname === 'api.mymemory.translated.net') return route.fulfill({ json: { responseStatus: 200, responseData: { translatedText: translationFixture } } });
+          if (target.hostname === 'api.mymemory.translated.net') {
+            mockedTranslations++;
+            return route.fulfill({ json: { responseStatus: 200, responseData: { translatedText: translationFixture } } });
+          }
           return route.abort(); // No private data or fixture audio leaves CI.
         });
         await page.goto(url);
@@ -80,6 +85,7 @@ try {
           await page.locator('.sentence-text').first().focus(); await page.keyboard.press('Enter');
           phase = `translation-layout-${size}`;
           await expect(page.locator('#translation-text')).toHaveText(translationFixture);
+          assert.ok(mockedTranslations > 0, 'The translation fixture must be provided by the route, not the real service.');
           // Require both complete fixture content and settled scroll geometry.
           // Poll the same layout requirements rather than sampling once.
           await expect.poll(async () => {
@@ -147,7 +153,7 @@ try {
         await page.screenshot({ path: new URL(`${name}-${viewport.width}.png`, output).pathname });
         } catch (error) {
           await page.screenshot({ path: new URL(`${name}-${viewport.width}-failure.png`, output).pathname }).catch(() => {});
-          failures.push(new Error(JSON.stringify({ browser: name, viewport, phase, offlineState, layoutState, message: error.message }), { cause: error }));
+          failures.push(new Error(JSON.stringify({ browser: name, viewport, phase, mockedTranslations, offlineState, layoutState, message: error.message }), { cause: error }));
         } finally { await context.close(); }
       }
     } finally { await browser?.close(); }
