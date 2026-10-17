@@ -87,11 +87,17 @@ try {
           await page.waitForFunction(() => document.getElementById('offline-status').textContent.startsWith('頁面已可離線使用'));
           const scope = await page.evaluate(async () => (await navigator.serviceWorker.ready).scope);
           assert.equal(scope, origin + basePath);
+          offlineState = await page.evaluate(async () => ({
+            path: location.pathname + location.search + location.hash,
+            controller: navigator.serviceWorker.controller?.state,
+            cachedNavigation: !!(await caches.match(location.href)),
+            cacheNames: await caches.keys()
+          }));
           const controlledResponse = await page.reload();
           assert.equal(controlledResponse?.fromServiceWorker(), true, 'Online navigation must already be served by the service worker.');
           await page.waitForFunction(() => document.querySelector('#playlist-tracks .track-main'));
           offlineState = await page.evaluate(async () => ({
-            path: location.pathname + location.search,
+            path: location.pathname + location.search + location.hash,
             controller: navigator.serviceWorker.controller?.state,
             cachedNavigation: !!(await caches.match(location.href)),
             cacheNames: await caches.keys()
@@ -104,6 +110,14 @@ try {
           await context.setOffline(true);
           const offlineResponse = await page.reload();
           assert.equal(offlineResponse?.fromServiceWorker(), true, 'Offline navigation must come from the service worker.');
+          await page.waitForFunction(() => document.querySelector('#playlist-tracks .track-main'));
+          for (const tab of ['settings', 'library', 'import', 'playlist']) {
+            await page.locator(`[data-tab="${tab}"]`).click();
+            const response = await page.reload();
+            assert.equal(response?.fromServiceWorker(), true, `Offline ${tab} navigation must come from the service worker.`);
+            await page.waitForFunction(() => !document.getElementById('start-import').disabled);
+            assert.equal(new URL(page.url()).hash, `#${tab}`);
+          }
           await page.waitForFunction(() => document.querySelector('#playlist-tracks .track-main'));
           const uncachedFailed = await page.evaluate(() => fetch('./index.html?uncached-offline-probe=1').then(() => false, () => true));
           assert.equal(uncachedFailed, true, 'An uncached network request must fail while offline.');

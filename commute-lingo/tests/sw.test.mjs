@@ -43,6 +43,26 @@ test('versioned module requests are served from matching cache and other app pat
   f.handlers.get('fetch')({ request: { method: 'GET', url: 'https://example.test/another-app/app.mjs' }, respondWith: p => { response = p; } });
   assert.equal(response, undefined);
 });
+test('navigation fragments reuse the cached document while unknown queries, other apps and writes pass through', async () => {
+  const f = await fixture(); await f.run('install');
+  for (const hash of ['#playlist', '#settings', '#library', '#import']) {
+    let response;
+    const request = new Request(f.scope + '?v=0.2.8' + hash);
+    f.handlers.get('fetch')({ request, respondWith: value => { response = value; } });
+    assert.ok(response, `Navigation ${hash} must be handled offline`);
+    assert.equal((await response).asset, './?v=0.2.8');
+  }
+  for (const request of [
+    new Request(f.scope + '?uncached-offline-probe=1#playlist'),
+    new Request(f.scope + '?v=0.1.0#playlist'),
+    new Request('https://example.test/another-app/?v=0.2.8#playlist'),
+    new Request(f.scope + '?v=0.2.8#playlist', { method: 'POST' })
+  ]) {
+    let response;
+    f.handlers.get('fetch')({ request, respondWith: value => { response = value; } });
+    assert.equal(response, undefined);
+  }
+});
 test('activation keeps model cache and other apps while retiring this app previous shell', async () => {
   const f = await fixture();
   await f.caches.open('commute-lingo-shell-0.1.0-r2'); await f.caches.open('commute-lingo-models-v1'); await f.caches.open('another-app-shell');

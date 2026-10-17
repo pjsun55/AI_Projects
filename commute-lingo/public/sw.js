@@ -1,6 +1,6 @@
 const PREFIX = 'commute-lingo-shell-';
 const VERSION = '0.2.8';
-const CACHE = `${PREFIX}${VERSION}-r1`;
+const CACHE = `${PREFIX}${VERSION}-r2`;
 const ASSETS = ['./', `./?v=${VERSION}`, './index.html', './icon.svg',
   ...['journey', 'dialogue', 'sunrise'].flatMap(name => [`./icon-${name}.svg`, `./icon-${name}-192.png`, `./icon-${name}-512.png`, `./manifest-${name}.webmanifest?v=${VERSION}`]),
   ...['styles.css', 'app.mjs', 'core.mjs', 'storage.mjs', 'translation.mjs', 'transcriber.mjs', 'asr.mjs', 'decode.mjs', 'decoder.mjs', 'library.mjs', 'source.mjs', 'network.mjs', 'icons.mjs', 'gestures.mjs', 'subtitles.mjs', 'backup.mjs', 'manifest.webmanifest'].map(name => `./${name}?v=${VERSION}`)];
@@ -18,9 +18,13 @@ self.addEventListener('activate', event => {
   })());
 });
 self.addEventListener('fetch', event => {
-  if (event.request.method !== 'GET' || !allowed.has(event.request.url)) return;
+  // A navigation Request can retain the tab fragment (#playlist, #settings).
+  // Fragments identify a view in the same document, not another HTTP asset.
+  const assetURL = new URL(event.request.url);
+  assetURL.hash = '';
+  if (event.request.method !== 'GET' || !allowed.has(assetURL.href)) return;
   event.respondWith((async () => {
-    const cached = await (await caches.open(CACHE)).match(event.request);
+    const cached = await (await caches.open(CACHE)).match(assetURL.href);
     return cached || fetch(event.request);
   })());
 });
