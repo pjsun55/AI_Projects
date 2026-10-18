@@ -6,12 +6,24 @@ const track = (id, seconds = 60) => ({ id, title: `Audio ${id}`, duration: secon
 function albumLibrary() { return addAlbum(emptyLibrary(), 'On the train', 'a'); }
 test('defaults and hard limits match the requested 3 albums / 3 per album / 25 minutes', () => {
   assert.deepEqual([DEFAULT_SETTINGS.albumLimit, DEFAULT_SETTINGS.trackLimit, DEFAULT_SETTINGS.maxMinutes], [3, 3, 25]);
-  assert.doesNotThrow(() => validateSettings({ albumLimit: 5, trackLimit: 5, maxMinutes: 35 }));
-  for (const input of [{ albumLimit: 6 }, { trackLimit: 0 }, { maxMinutes: 36 }, { maxMinutes: 20.5 }, { model: 'unknown' }, { icon: 'unknown' }]) assert.throws(() => validateSettings(input));
+  assert.doesNotThrow(() => validateSettings({ albumLimit: 5, trackLimit: 5, maxMinutes: 60 }));
+  for (const input of [{ albumLimit: 6 }, { trackLimit: 0 }, { maxMinutes: 61 }, { maxMinutes: 20.5 }, { model: 'unknown' }, { icon: 'unknown' }]) assert.throws(() => validateSettings(input));
   assert.equal('apiKey' in validateSettings({ apiKey: 'test-placeholder' }), false);
   assert.equal(validateSettings({ icon: 'dialogue' }).icon, 'sunrise'); // Earlier icon preferences adopt the fixed orange choice.
   assert.doesNotThrow(() => checkDuration(1500, DEFAULT_SETTINGS));
   assert.throws(() => checkDuration(1500.01, DEFAULT_SETTINGS), /超過/);
+});
+test('one-hour imports enforce exact limits and preserve existing duration preferences', () => {
+  const settings = validateSettings({ maxMinutes: 60 });
+  assert.doesNotThrow(() => checkDuration(3600, settings));
+  assert.throws(() => checkDuration(3600.01, settings), /超過目前 60/);
+  assert.throws(() => checkDuration(3601, { maxMinutes: 120 }), /1–60/);
+  assert.throws(() => checkDuration(3600, DEFAULT_SETTINGS), /超過目前 25/);
+  for (const maxMinutes of [25, 30, 35, 60]) assert.equal(validateSettings({ maxMinutes }).maxMinutes, maxMinutes);
+  let library = changeSettings(albumLibrary(), { maxMinutes: 60 });
+  library = placeTrack(library, track('one-hour', 3600), 'a');
+  assert.throws(() => changeSettings(library, { maxMinutes: 35 }), /先至檔案管理/);
+  assert.equal(library.tracks[0].duration, 3600);
 });
 test('album creation enforces quota and rename preserves audio links', () => {
   let library = albumLibrary(); library = addAlbum(library, 'B', 'b'); library = addAlbum(library, 'C', 'c');
@@ -69,6 +81,8 @@ test('old saved 22-minute episode migrates intact with an explicitly adjusted le
   const result = legacyLibrary(saved);
   assert.equal(result.library.settings.maxMinutes, 25); assert.equal(result.library.tracks[0].title, 'Old episode');
   assert.equal(result.audio.blob, saved.file); assert.equal(result.library.tracks[0].segments[0].end, 1335.64);
-  assert.equal(legacyLibrary({ ...saved, doc: { ...saved.doc, audio: { duration: 2200 } } }), null);
+  const oneHour = legacyLibrary({ ...saved, doc: { ...saved.doc, audio: { duration: 3600 } } });
+  assert.equal(oneHour.library.settings.maxMinutes, 60); assert.equal(oneHour.audio.blob, saved.file);
+  assert.equal(legacyLibrary({ ...saved, doc: { ...saved.doc, audio: { duration: 3600.01 } } }), null);
   assert.equal(legacyLibrary({ file: saved.file }), null);
 });

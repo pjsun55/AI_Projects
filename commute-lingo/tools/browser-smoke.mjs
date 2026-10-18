@@ -64,6 +64,35 @@ try {
           await page.screenshot({ path: new URL(`${name}-${viewport.width}-${tab}-ui125.png`, output).pathname });
         }
         await expect(page.locator('#setting-minutes')).toHaveValue('25');
+        await expect(page.locator('#setting-minutes')).toHaveAttribute('max', '60');
+        await page.locator('#setting-minutes').fill('60');
+        await page.locator('#settings-form button[type=submit]').click();
+        await expect(page.locator('#settings-message')).toHaveText('設定已儲存。');
+        await page.reload();
+        await expect(page.locator('#setting-minutes')).toHaveValue('60');
+        await page.locator('[data-tab="import"]').click();
+        const oldURL = 'https://podcasts.apple.com/example/id123?i=456&previous='.padEnd(300, 'x');
+        await page.locator('#source-url').fill(oldURL);
+        await expect(page.locator('#clear-source-url')).toBeEnabled();
+        assert.ok(await page.locator('#clear-source-url').evaluate(element => {
+          const rect = element.getBoundingClientRect(); return rect.width >= 44 && rect.height >= 44 && rect.right <= innerWidth;
+        }), 'Source clear control must remain reachable beside a long URL');
+        await page.locator('#clear-source-url').click();
+        await expect(page.locator('#source-url')).toHaveValue('');
+        await expect(page.locator('#source-url')).toBeFocused();
+        await expect(page.locator('#clear-source-url')).toBeDisabled();
+        await page.locator('#source-file').click();
+        await expect(page.locator('#file-source')).toBeVisible();
+        await expect(page.locator('#start-file-import')).toBeDisabled();
+        await page.locator('#audio-file').setInputFiles({ name: `${'Public lesson '.repeat(10)}.wav`, mimeType: 'audio/wav', buffer: Buffer.from('RIFF0000WAVE') });
+        await expect(page.locator('#start-file-import')).toBeEnabled();
+        assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'Local file picker and long filename must fit portrait width');
+        await page.screenshot({ path: new URL(`${name}-${viewport.width}-local-audio.png`, output).pathname });
+        await page.locator('#clear-audio-file').click();
+        await expect(page.locator('#audio-file')).toHaveValue('');
+        await expect(page.locator('#start-file-import')).toBeDisabled();
+        await page.locator('#source-podcast').click();
+        await page.locator('[data-tab="settings"]').click();
         const scale = await page.evaluate(() => visualViewport?.scale ?? 1);
         for (const id of ['setting-minutes', 'setting-albums', 'setting-tracks', 'setting-subtitles', 'setting-language', 'setting-model']) {
           assert.ok(await page.locator(`#${id}`).evaluate(element => parseFloat(getComputedStyle(element).fontSize) >= 16), `${id} needs readable text without focus zoom`);
@@ -108,6 +137,16 @@ try {
           assert.ok(layout.top >= -1 && layout.bottom <= layout.height + 1, JSON.stringify({ name, viewport, size, layout }));
           assert.ok(layout.controlsVisible && layout.overflow <= 1 && layout.artwork === 'none', JSON.stringify({ name, viewport, size, layout }));
           assert.ok(layout.listHeight > (viewport.width > 360 ? viewport.height * 0.45 : 100), JSON.stringify({ name, viewport, size, layout }));
+          await page.evaluate(() => { const audio = document.getElementById('audio'); audio.currentTime = 6.5; audio.dispatchEvent(new Event('timeupdate')); });
+          await expect(page.locator('.subtitle-cue.active')).toHaveCount(1);
+          await expect(page.locator('.subtitle-cue').nth(1)).toHaveAttribute('aria-current', 'true');
+          const emphasis = await page.evaluate(() => {
+            const active = document.querySelector('.subtitle-cue.active .sentence-text');
+            const inactive = document.querySelector('.subtitle-cue:not(.active) .sentence-text');
+            return { activeWeight: +getComputedStyle(active).fontWeight, inactiveWeight: +getComputedStyle(inactive).fontWeight, differentColors: getComputedStyle(active).color !== getComputedStyle(inactive).color };
+          });
+          assert.ok(emphasis.activeWeight >= 600 && emphasis.inactiveWeight <= 500 && emphasis.differentColors, JSON.stringify(emphasis));
+          await page.evaluate(() => { const audio = document.getElementById('audio'); audio.currentTime = 0; audio.dispatchEvent(new Event('timeupdate')); });
           await page.screenshot({ path: new URL(`${name}-${viewport.width}-${size}-captions.png`, output).pathname });
           // Keyboard translation reaches the same long-press action, using a fake service.
           await page.locator('.sentence-text').first().focus(); await page.keyboard.press('Enter');

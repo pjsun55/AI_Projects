@@ -101,7 +101,7 @@ def png(size, start, end, shapes):
 for name,(start,end,shapes) in ICONS.items():
     (PUBLIC/f'icon-{name}.svg').write_text(svg(start,end,shapes))
     for size in (192,512): (PUBLIC/f'icon-{name}-{size}.png').write_bytes(png(size,start,end,shapes))
-    manifest={'id':'./','name':'通勤學語言 · CommuteLingo','short_name':'通勤學語言','lang':'zh-Hant','start_url':'./?v=0.2.10','scope':'./','display':'standalone','orientation':'portrait','background_color':'#fbf8f5','theme_color':'#fbf8f5','icons':[{'src':f'./icon-{name}-{size}.png','sizes':f'{size}x{size}','type':'image/png','purpose':'any'} for size in (192,512)]}
+    manifest={'id':'./','name':'通勤學語言 · CommuteLingo','short_name':'通勤學語言','lang':'zh-Hant','start_url':'./?v=0.2.11','scope':'./','display':'standalone','orientation':'portrait','background_color':'#fbf8f5','theme_color':'#fbf8f5','icons':[{'src':f'./icon-{name}-{size}.png','sizes':f'{size}x{size}','type':'image/png','purpose':'any'} for size in (192,512)]}
     (PUBLIC/f'manifest-{name}.webmanifest').write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n')
     if name=='sunrise':
         (PUBLIC/'manifest.webmanifest').write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n')

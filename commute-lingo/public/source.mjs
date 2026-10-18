@@ -1,7 +1,7 @@
-import { appleLookupURL, normalizeSegments, checkDecodedAudio } from './core.mjs?v=0.2.10';
-import { checkDuration } from './library.mjs?v=0.2.10';
-import { isMP3, decodeInWorker } from './decode.mjs?v=0.2.10';
-import { publicAudioURL, readJSON } from './network.mjs?v=0.2.10';
+import { appleLookupURL, normalizeGeneratedSegments, normalizeWordSentences, checkDecodedAudio } from './core.mjs?v=0.2.11';
+import { checkDuration } from './library.mjs?v=0.2.11';
+import { isMP3, decodeInWorker } from './decode.mjs?v=0.2.11';
+import { publicAudioURL, readJSON } from './network.mjs?v=0.2.11';
 
 const MAX_BYTES = 250 * 1024 * 1024;
 const cancelled = signal => { if (signal?.aborted) throw new DOMException('已取消', 'AbortError'); };
@@ -72,7 +72,7 @@ export function audioDuration(blob, { signal, AudioClass = Audio, urlAPI = URL }
     probe.preload = 'metadata'; probe.src = url;
   });
 }
-export function workerTranscript(samples, { language, model, signal, progress = () => {}, createWorker = () => new Worker(new URL('./transcriber.mjs?v=0.2.10', import.meta.url), { type: 'module' }) } = {}) {
+export function workerTranscript(samples, { language, model, signal, progress = () => {}, createWorker = () => new Worker(new URL('./transcriber.mjs?v=0.2.11', import.meta.url), { type: 'module' }) } = {}) {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) { reject(new DOMException('已取消', 'AbortError')); return; }
     const worker = createWorker(); let settled = false;
@@ -119,6 +119,35 @@ export async function importPodcast(link, settings, {
   return { blob, track: { title: source.title, show: source.show, source: source.type, sourceURL: source.link, ...transcript, size: blob.size, type: blob.type, language: settings.language, position: 0, createdAt: Date.now() } };
 }
 
+// File names and picker MIME types are hints only. Check a bounded header, then
+// require readable metadata and full decoding before returning a pending track.
+export async function importAudioFile(file, settings, options = {}) {
+  const { signal, progress = () => {} } = options, started = performance.now();
+  cancelled(signal);
+  progress({ stage: 'source', message: '正在檢查所選音檔…' });
+  if (!(file instanceof Blob) || typeof file.name !== 'string') throw new Error('請先選擇一個音檔。');
+  if (!file.size) throw new Error('所選音檔是空白檔案，請重新選擇。');
+  if (file.size > MAX_BYTES) throw new Error('音檔超過 250 MB，已停止匯入。');
+  const extension = /\.(mp3|m4a|wav)$/i.exec(file.name)?.[1].toLowerCase();
+  const formats = {
+    mp3: { type: 'audio/mpeg', aliases: ['audio/mpeg', 'audio/mp3', 'audio/x-mp3'] },
+    m4a: { type: 'audio/mp4', aliases: ['audio/mp4', 'audio/m4a', 'audio/x-m4a'] },
+    wav: { type: 'audio/wav', aliases: ['audio/wav', 'audio/wave', 'audio/x-wav', 'audio/vnd.wave'] }
+  };
+  const format = formats[extension], type = file.type.split(';')[0].trim().toLowerCase();
+  if (!format || (type && type !== 'application/octet-stream' && !format.aliases.includes(type))) throw new Error('請選擇 MP3、M4A 或 WAV 音檔；建議使用 MP3。');
+  const header = new Uint8Array(await file.slice(0, 64).arrayBuffer()); cancelled(signal);
+  const tag = (offset, text) => [...text].every((char, i) => header[offset + i] === char.charCodeAt(0));
+  const matches = extension === 'mp3' ? isMP3({ name: '', type: '' }, header)
+    : extension === 'wav' ? tag(0, 'RIFF') && tag(8, 'WAVE') : header.length >= 12 && tag(4, 'ftyp');
+  if (!matches) throw new Error('音檔內容與副檔名不符，請重新匯出 MP3、M4A 或 WAV 後再試。');
+  const blob = file.slice(0, file.size, format.type);
+  const transcript = await transcribeSavedAudio(blob, settings, { ...options, started, name: file.name });
+  cancelled(signal);
+  const title = file.name.replace(/\.(mp3|m4a|wav)$/i, '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 120).trim() || '匯入音檔';
+  return { blob, track: { title, show: '本機音檔', source: 'file', sourceURL: '', ...transcript, size: blob.size, type: blob.type, language: settings.language, position: 0, createdAt: Date.now() } };
+}
+
 // The same full-length guards apply to a saved recording. No source lookup,
 // download or persistence happens here; the caller commits only after success.
 export async function transcribeSavedAudio(blob, settings, {
@@ -134,6 +163,7 @@ export async function transcribeSavedAudio(blob, settings, {
   progress({ stage: 'transcribe', message: '正在準備字幕模型…' });
   const output = await transcribe(decoded.samples, { signal, language: settings.language, model: settings.model, progress: message => progress({ stage: 'transcribe', message }) }); cancelled(signal);
   if (!Number.isFinite(output.processedSeconds) || Math.abs(output.processedSeconds - decodedSeconds) > 0.1) throw new Error('字幕轉錄沒有走完整份音訊，已停止匯入。');
-  const segments = normalizeSegments(output.chunks, duration);
-  return { duration, segments, metrics: { ...output.metrics, decoder: decoded.decoder, decodedSeconds, decodeSeconds, totalSeconds: (performance.now() - started) / 1000 } };
+  const wordTiming = output.timestampMode === 'word';
+  const { segments, warnings, duplicateSentences = 0 } = wordTiming ? normalizeWordSentences(output.chunks, duration, settings.language) : normalizeGeneratedSegments(output.chunks, duration);
+  return { duration, segments, alignment: wordTiming ? 'word-v1' : 'segment-v1', metrics: { ...output.metrics, timestampMode: wordTiming ? 'word' : 'segment', duplicateSentences, timestampWarnings: warnings, decoder: decoded.decoder, decodedSeconds, decodeSeconds, totalSeconds: (performance.now() - started) / 1000 } };
 }

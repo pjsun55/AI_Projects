@@ -1,5 +1,5 @@
-import { transcribeWindows } from './asr.mjs?v=0.2.10';
-import { formatTime } from './core.mjs?v=0.2.10';
+import { transcribeWindows } from './asr.mjs?v=0.2.11';
+import { formatTime } from './core.mjs?v=0.2.11';
 let pipeline;
 self.onmessage = async ({ data }) => {
   if (data.type !== 'transcribe') return;
@@ -25,12 +25,12 @@ self.onmessage = async ({ data }) => {
       progress_callback: event => self.postMessage({ type: 'progress', message: event.status === 'progress' ? `下載模型 ${Math.round(event.progress ?? 0)}%` : '準備語音模型…' })
     });
     const ready = performance.now();
-    self.postMessage({ type: 'progress', message: '正在轉錄，請保持此頁開啟。' });
+    self.postMessage({ type: 'progress', message: '正在轉錄並對齊句子時間，請保持此頁開啟。' });
     const output = await transcribeWindows(pipeline, data.samples, {
       language: data.language,
       progress: event => self.postMessage({ type: 'progress', message: `已處理 ${formatTime(event.processedSeconds)}／${formatTime(event.audioSeconds)}（${event.window}/${event.total}）` })
     });
-    self.postMessage({ type: 'complete', chunks: output.chunks, processedSeconds: output.processedSeconds, metrics: { model, windowCount: output.windowCount, audioSeconds: output.audioSeconds, modelLoadSeconds: (ready - started) / 1000, inferenceSeconds: (performance.now() - ready) / 1000 } });
+    self.postMessage({ type: 'complete', chunks: output.chunks, timestampMode: output.timestampMode, processedSeconds: output.processedSeconds, metrics: { model, windowCount: output.windowCount, audioSeconds: output.audioSeconds, modelLoadSeconds: (ready - started) / 1000, inferenceSeconds: (performance.now() - ready) / 1000 } });
   } catch (error) {
     self.postMessage({ type: 'error', message: error.message || '轉錄失敗。' });
   } finally {

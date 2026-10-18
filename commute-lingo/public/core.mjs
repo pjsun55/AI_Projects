@@ -28,10 +28,73 @@ export function normalizeSegments(input, duration) {
       throw new Error(`第 ${i + 1} 段的起訖時間無效；請先載入原音檔，再匯入字幕。`);
     }
     if (typeof item.text !== 'string' || !plainText(item.text)) throw new Error(`第 ${i + 1} 段缺少原文。`);
-    return { start, end, text: plainText(item.text), ...(inferredEnd ? { inferredEnd: true } : {}) };
+    return { start, end, text: plainText(item.text), ...(inferredEnd ? { inferredEnd: true } : {}), ...(item.timingUncertain === true ? { timingUncertain: true } : {}) };
   }).sort((a, b) => a.start - b.start);
   if (Number.isFinite(duration) && segments.some(s => s.end > duration + 2)) throw new Error('字幕超出音檔長度，請確認使用同一份音檔。');
   return segments;
+}
+
+// Model output can omit timestamps or reverse a boundary inside the 5-second
+// overlap. Keep the words, use only bounded ranges, and disclose coarse timing.
+// User-imported subtitles continue to use the strict normalizer above.
+export function normalizeGeneratedSegments(input, duration) {
+  if (!Array.isArray(input) || !input.length || input.length > 20000 || !Number.isFinite(duration) || duration <= 0) throw new Error('字幕模型沒有回傳有效的原文與音訊時間範圍。');
+  const fail = index => { throw new Error(`字幕模型第 ${index + 1} 段的時間無法安全對齊，請切換轉錄模型後重試；原有收藏保持不變。`); };
+  const warnings = [], work = input.map((item, index) => {
+    const times = item?.timestamp ?? [item?.start, item?.end];
+    if (!Array.isArray(times) || times.length !== 2 || !times.every(value => value === null || typeof value === 'number' && Number.isFinite(value) && value >= 0)) fail(index);
+    if (typeof item?.text !== 'string') fail(index);
+    return { start: times[0], end: times[1], text: item.text, index, ...(item.inferredEnd === true ? { inferredEnd: true } : {}) };
+  }).filter(item => plainText(item.text));
+  if (!work.length) throw new Error('字幕模型沒有回傳有效原文。');
+  // Find following source anchors in linear time, including repeated starts.
+  const nextKnown = [], nextGreater = [], stack = [];
+  let following = null;
+  for (let i = work.length - 1; i >= 0; i--) {
+    nextKnown[i] = following;
+    const start = work[i].start;
+    if (start === null) continue;
+    while (stack.length && stack.at(-1) <= start) stack.pop();
+    nextGreater[i] = stack.at(-1) ?? duration;
+    stack.push(start); following = start;
+  }
+  for (let i = 0; i < work.length; i++) {
+    const item = work[i];
+    if (item.start === null) {
+      const previous = work[i - 1];
+      const lower = previous && typeof previous.end === 'number' ? previous.end : 0;
+      const upper = item.end ?? nextKnown[i] ?? duration;
+      if (!(lower < upper && upper <= duration + 2)) fail(item.index);
+      item.start = lower; item.end = upper; item.timingUncertain = true;
+      if (input[item.index].timestamp?.[1] === null || input[item.index].end === null) item.inferredEnd = true;
+      warnings.push({ type: 'missing-start', segment: item.index + 1, range: [lower, upper] });
+    } else if (item.end === null) {
+      item.end = nextGreater[i];
+      item.inferredEnd = true;
+      if (nextKnown[i] !== null && nextKnown[i] <= item.start) {
+        item.timingUncertain = true;
+        warnings.push({ type: 'missing-end', segment: item.index + 1, range: [item.start, item.end] });
+      }
+    }
+  }
+  const valid = item => item && !item.removed && item.start < item.end && item.end <= duration + 2;
+  for (let i = 0; i < work.length; i++) {
+    const item = work[i];
+    if (item.removed || valid(item)) continue;
+    // Do not fabricate a duration for equal/reversed model timestamps. Only
+    // merge into an adjacent valid cue already covering both boundary values.
+    if (item.start - item.end > 5.02 || item.start < item.end) fail(item.index);
+    const covers = candidate => valid(candidate) && !candidate.timingUncertain && !candidate.inferredEnd && item.end >= candidate.start && item.start <= candidate.end;
+    const next = work[i + 1], previous = work[i - 1];
+    let anchor;
+    if (covers(next)) { anchor = next; anchor.text = `${item.text}\n${anchor.text}`; }
+    else if (covers(previous)) { anchor = previous; anchor.text += `\n${item.text}`; }
+    else fail(item.index);
+    anchor.timingUncertain = true; item.removed = true;
+    warnings.push({ type: 'overlap-boundary', segment: item.index + 1, range: [anchor.start, anchor.end] });
+  }
+  const segments = normalizeSegments(work.filter(item => !item.removed), duration);
+  return { segments, warnings };
 }
 
 export function parseTranscript(text, { duration, audioHash } = {}) {
@@ -78,17 +141,56 @@ function sentenceEnd(text) {
   return !/(?:\b(?:Mr|Mrs|Ms|Dr|Prof|St|vs)|\b[A-Z]|\b(?:e\.g|i\.e))\.$/iu.test(text);
 }
 
-export function groupSentences(segments, language = 'en') {
+export function groupSentences(segments, language = 'en', includeWords = false) {
   const groups = [];
   let pending;
   const separator = /^(ja|zh)/.test(language) ? '' : ' ';
   for (const segment of segments) {
-    if (!pending) pending = { start: segment.start, end: segment.end, text: segment.text };
-    else { pending.end = Math.max(pending.end, segment.end); pending.text += separator + segment.text; }
+    if (!pending) pending = { start: segment.start, end: segment.end, text: segment.text, ...(segment.timingUncertain ? { timingUncertain: true } : {}), ...(segment.inferredEnd ? { inferredEnd: true } : {}) };
+    else {
+      if (segment.end >= pending.end) {
+        pending.end = segment.end;
+        if (segment.inferredEnd) pending.inferredEnd = true; else delete pending.inferredEnd;
+      }
+      pending.text += separator + segment.text;
+      if (segment.timingUncertain) pending.timingUncertain = true;
+    }
+    if (includeWords) (pending.words ??= []).push(segment);
     if (sentenceEnd(pending.text)) { groups.push({ ...pending, incomplete: false }); pending = undefined; }
   }
   if (pending) groups.push({ ...pending, incomplete: true });
   return groups;
+}
+
+// DTW may anchor several adjacent words to the same instant. Sentence playback
+// needs the first/last word's range, not a fabricated duration for every word.
+export function normalizeWordSentences(input, duration, language = 'en') {
+  if (!Array.isArray(input) || !input.length || input.length > 20000 || !Number.isFinite(duration) || duration <= 0) throw new Error('模型未提供有效的逐字對齊資料。');
+  let previousStart = -Infinity;
+  const words = input.map((item, index) => {
+    const times = item?.timestamp;
+    if (!Array.isArray(times) || times.length !== 2 || !times.every(time => typeof time === 'number' && Number.isFinite(time) && time >= 0 && time <= duration + 2)
+      || times[1] < times[0] || times[0] < previousStart || typeof item.text !== 'string' || !plainText(item.text)) throw new Error(`模型第 ${index + 1} 個字詞無法對齊，請切換模型後重試。`);
+    previousStart = times[0];
+    return { start: times[0], end: times[1], text: plainText(item.text) };
+  });
+  const sentences = [];
+  let duplicateSentences = 0;
+  for (const sentence of groupSentences(words, language, true)) {
+    const previous = sentences.at(-1);
+    // Sometimes DTW splits one utterance into two identical sentences: one
+    // copy anchors the prefix and the other anchors the suffix. Collapse only
+    // complementary copies at the same boundary; genuine timed repetitions
+    // keep both copies. No words are assigned a synthetic duration.
+    const complementary = previous && previous.text === sentence.text && Math.abs(previous.end - sentence.start) <= 0.04 && previous.words.length === sentence.words.length
+      && previous.words.every((word, i) => word.text === sentence.words[i].text && (word.end > word.start) !== (sentence.words[i].end > sentence.words[i].start));
+    const anchors = complementary ? previous.words.map((word, i) => word.end > word.start ? word : sentence.words[i]) : null;
+    if (anchors && anchors.every((word, i) => !i || word.start >= anchors[i - 1].start)) {
+      sentences[sentences.length - 1] = { ...sentence, start: anchors[0].start, end: Math.max(...anchors.map(word => word.end)), words: anchors };
+      duplicateSentences++;
+    } else sentences.push(sentence);
+  }
+  return { segments: normalizeSegments(sentences, duration), warnings: [], duplicateSentences };
 }
 
 export function transcriptCoverage(segments, duration) {
