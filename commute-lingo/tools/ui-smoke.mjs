@@ -68,12 +68,12 @@ try {
   audio.play = async () => { paused = false; audio.dispatchEvent(event('play')); };
   audio.pause = () => { if (!paused) { paused = true; audio.dispatchEvent(event('pause')); } };
   audio.load = () => { audio.currentTime = 0; };
-  const fakeCaches = new Map([['commute-lingo-models-v1', true], ['another-app-models', true], ['commute-lingo-shell-0.2.12-r1', true]]);
-  const location = { href: 'https://example.test/commute-lingo/?v=0.2.12', hash: '' };
+  const fakeCaches = new Map([['commute-lingo-models-v1', true], ['another-app-models', true], ['commute-lingo-shell-0.2.13-r1', true]]);
+  const location = { href: 'https://example.test/commute-lingo/?v=0.2.13', hash: '' };
   const screen = { width: 393, height: 852, orientation: { type: 'portrait-primary', addEventListener() {} } };
   const fixtureSentence = 'While the train moves through the city and the morning sun fills the windows, I listen to a familiar story and notice the expressions I missed yesterday, then I repeat a useful sentence quietly and save the lesson for another journey.';
   const translatedTexts = [];
-  let fixtureName = 'A short test episode', fixtureMillis = 4000, fixtureSeconds = 4, partialTranscript = false, missingModelStart = false, wordTranscript = false, holdWorker = false, failWorker = false, mediaDownloads = 0, catalogLookups = 0, translated = 0;
+  let fixtureName = 'A short test episode', fixtureMillis = 4000, fixtureSeconds = 4, partialTranscript = false, missingModelStart = false, wordTranscript = false, mixedTranscript = false, holdWorker = false, failWorker = false, mediaDownloads = 0, catalogLookups = 0, translated = 0;
   const runtimeFetch = async (input, options = {}) => {
     const url = new URL(input);
     if (url.hostname === 'itunes.apple.com') { catalogLookups++; return Response.json({ results: [{ trackId: 1000796641961, trackName: fixtureName, collectionName: 'Public fixture', trackTimeMillis: fixtureMillis, episodeUrl: 'https://media.example.com/fixture.wav' }] }); }
@@ -90,7 +90,7 @@ try {
     async decodeAudioData() { return { length: fixtureSeconds * 16000, sampleRate: 16000, numberOfChannels: 1, getChannelData: () => new Float32Array(fixtureSeconds * 16000) }; }
   }
   class Worker {
-    postMessage() { schedule(() => this.onmessage?.({ data: failWorker ? { type: 'error', message: 'Simulated inference failure' } : wordTranscript ? {
+    postMessage() { schedule(() => this.onmessage?.({ data: failWorker ? { type: 'error', message: 'Simulated inference failure' } : mixedTranscript ? { type: 'complete', timestampMode: 'mixed', processedSeconds: fixtureSeconds, chunks: [], regions: [{ mode: 'word', chunks: [{ timestamp: [0, .5], text: 'First sentence.' }] }, { mode: 'coarse', fallbackChunks: [{ start: 1, end: 2, text: 'Unaligned sentence. More words.' }] }, { mode: 'word', chunks: [{ timestamp: [2.5, fixtureSeconds], text: 'Last sentence.' }] }], metrics: {} } : wordTranscript ? {
       type: 'complete', timestampMode: 'word', processedSeconds: fixtureSeconds,
       chunks: [{ timestamp: [0, 1], text: 'Dr.' }, { timestamp: [1, 4], text: 'Wang speaks?' }, { timestamp: [5, 6], text: 'The answer' }, { timestamp: [6, 8], text: 'lies on the label.' }, { timestamp: [9, 10], text: 'The supreme grade' }, { timestamp: [10, fixtureSeconds], text: 'is extra virgin.' }], metrics: {}
     } : { type: 'complete', processedSeconds: fixtureSeconds, chunks: [{ timestamp: [missingModelStart ? null : 0, 2], text: fixtureSentence + ' We learn one idea at a time.' }, ...partialTranscript ? [] : [{ timestamp: [2, fixtureSeconds], text: 'Listen and learn along the way.' }]], metrics: {} } }), holdWorker ? 60000 : 10); }
@@ -105,8 +105,8 @@ try {
     wakeLocks.push(sentinel); return sentinel;
   } };
   Object.assign(context, { document, window, location, history: { replaceState(_, __, hash) { location.hash = hash; } }, screen, matchMedia: () => ({ matches: true }), navigator: { wakeLock, storage: { estimate: async () => ({ usage: 1024, quota: 1000000000 }), persisted: async () => false, persist: async () => false }, mediaSession: { setActionHandler() {}, setPositionState() {} } }, caches: { keys: async () => [...fakeCaches.keys()], delete: async key => fakeCaches.delete(key) }, indexedDB: fake.namespace.indexedDB, IDBKeyRange: fake.namespace.IDBKeyRange, Audio: Probe, OfflineAudioContext: Context, Worker, fetch: runtimeFetch });
-  await evaluate(await load(new URL('../public/app.mjs?v=0.2.12', import.meta.url).href));
-  const storageModule = (await load(new URL('../public/storage.mjs?v=0.2.12', import.meta.url).href)).namespace;
+  await evaluate(await load(new URL('../public/app.mjs?v=0.2.13', import.meta.url).href));
+  const storageModule = (await load(new URL('../public/storage.mjs?v=0.2.13', import.meta.url).href)).namespace;
   const library = () => storageModule.read('library-v2');
   const click = id => $(id).dispatchEvent(event('click'));
   const submit = id => $(id).dispatchEvent(event('submit'));
@@ -143,10 +143,11 @@ try {
   await until(() => $('import-message').textContent.includes('超過目前 25'), 'oversized source rejected');
   check(mediaDownloads === 0 && (await library()).tracks.length === 0, 'oversized source stops before media download and leaves the library unchanged');
   fixtureMillis = 4000; failWorker = true; submit('import-form');
-  await until(() => $('import-message').textContent.includes('Simulated inference failure'), 'model error displayed');
-  check(document.querySelector('[data-stage="transcribe"]').classList.contains('current'), 'failed transcription retains its real stage instead of reporting a source error');
-  check(!$('action-dialog').open && !$('start-import').disabled && (await library()).tracks.length === 0, 'inference error stops the pipeline, reports error and permits retry');
-  check(wakeLocks.every(lock => lock.released) && $('wake-lock-status').hidden, 'failed import releases every screen lock');
+  await until(() => $('action-dialog').open && $('destination-album'), 'model failure still offers saved audio');
+  check(document.querySelector('[data-stage="save"]').classList.contains('current') && $('dialog-description').textContent.includes('沒有可用字幕'), 'failed transcription offers audio-only output with a truthful save-stage message');
+  check((await library()).tracks.length === 0 && !$('discard-import').hidden, 'audio-only output awaits explicit placement rather than changing existing data');
+  check(wakeLocks.every(lock => lock.released) && $('wake-lock-status').hidden, 'completed audio-only preparation releases every screen lock');
+  click('dialog-cancel'); await delay(10); click('discard-import'); await until(() => $('dialog-title').textContent.includes('捨棄'), 'discard unsaved audio'); await confirm();
   failWorker = false; holdWorker = true; submit('import-form');
   await until(() => document.querySelector('[data-stage="transcribe"]').classList.contains('current'), 'new import held in transcription');
   check(!wakeLocks.at(-1).released && $('wake-lock-status').textContent.includes('已啟用') && $('clear-source-url').disabled, 'conversion holds a screen lock and disables URL clearing');
@@ -209,7 +210,7 @@ try {
   check(translatedTexts[0] === fixtureSentence && $('translation-original').textContent === fixtureSentence && cue.classList.contains('translating') && !cue.nextElementSibling.classList.contains('translating'), 'long-pressing any clause translates and marks only its complete sentence');
   cue.dispatchEvent(event('click'));
   check(audio.paused && !$('translation-panel').hidden, 'the click after a long press never seeks or resumes playback');
-  const translationModule = (await load(new URL('../public/translation.mjs?v=0.2.12', import.meta.url).href)).namespace;
+  const translationModule = (await load(new URL('../public/translation.mjs?v=0.2.13', import.meta.url).href)).namespace;
   const freshTranslator = translationModule.createTranslator({ load: key => storageModule.read(`translation:${key}`), save: (key, entry) => storageModule.write(`translation:${key}`, entry), fetchImpl: async () => { throw new Error('No network expected after persisted cache'); } });
   const restored = await freshTranslator.translate($('translation-original').textContent, 'en');
   check(restored.cached && restored.persisted && translated === 1, 'a fresh translation client reads saved Chinese from IndexedDB without an external request');
@@ -330,8 +331,8 @@ try {
   audio.currentTime = 60; audio.dispatchEvent(event('timeupdate'));
   check($('transcript-status').textContent.includes('目前播放位置沒有已確認的字幕'), 'seeking beyond available captions explains missing data instead of pretending more captions will appear');
   failWorker = true; click('regenerate-subtitles');
-  await until(() => $('import-message').textContent.includes('Simulated inference failure'), 'failed saved-audio repair');
-  check(document.querySelector('[data-stage="transcribe"]').classList.contains('current'), 'failed regeneration retains the subtitle stage');
+  await until(() => $('import-message').textContent.includes('未取得新字幕'), 'failed saved-audio repair retains the old result');
+  check(document.querySelector('[data-stage="save"]').classList.contains('current'), 'empty regeneration completes without replacing existing subtitles');
   check((await library()).revision === repairBefore.revision && !!await storageModule.read(`audio:${repairTrack.id}`), 'failed regeneration preserves saved audio and original subtitle revision');
   check(wakeLocks.every(lock => lock.released), 'failed saved-audio regeneration releases its screen lock');
   failWorker = false; holdWorker = true; await openRepairTrack(); click('regenerate-subtitles');
@@ -419,8 +420,9 @@ try {
   click('cancel-import'); await until(() => !$('start-file-import').disabled, 'local import cancellation completed');
   check((await library()).revision === localBefore.revision && wakeLocks.every(lock => lock.released), 'cancelled local inference preserves existing data and releases its screen lock');
   holdWorker = false; failWorker = true; submit('file-import-form');
-  await until(() => $('import-message').textContent.includes('Simulated inference failure'), 'local model failure displayed');
-  check((await library()).revision === localBefore.revision && !$('start-file-import').disabled, 'local inference failure permits retry without changing saved data');
+  await until(() => $('action-dialog').open && $('destination-album'), 'local model failure retains original audio for placement');
+  check((await library()).revision === localBefore.revision && $('dialog-description').textContent.includes('沒有可用字幕'), 'local inference failure retains a pending audio-only result without changing saved data');
+  click('dialog-cancel'); await delay(10); click('discard-import'); await until(() => $('dialog-title').textContent.includes('捨棄'), 'discard pending local audio'); await confirm();
   failWorker = false; submit('file-import-form');
   await until(() => $('action-dialog').open && $('destination-album'), 'local audio reaches placement');
   click('dialog-cancel'); await delay(10);
@@ -431,6 +433,28 @@ try {
   check(localTrack.title === file.name.slice(0, -4) && localTrack.sourceURL === '' && localTrack.segments.length === 2 && storedFile.size === file.size && localTrack.albumId === repairTrack.albumId, 'local import atomically persists its audio, generated captions and selected album');
   check(mediaDownloads === downloadsBeforeFile && catalogLookups === lookupsBeforeFile && translated === translationsBeforeFile, 'local audio conversion sends no audio or text to source or translation services');
   check($('start-file-import').disabled && $('selected-audio').textContent === '尚未選擇音檔。' && wakeLocks.every(lock => lock.released), 'successful local placement clears the file selection and restores sleep');
+  failWorker = true; pickFile(file); submit('file-import-form');
+  await until(() => $('destination-album') && $('action-dialog').open, 'audio-only save');
+  $('new-track-title').value = 'Audio without subtitles'; $('destination-album').value = repairTrack.albumId; $('destination-album').dispatchEvent(event('change')); await confirm();
+  const audioOnly = (await library()).tracks.find(track => track.title === 'Audio without subtitles');
+  check(audioOnly.transcriptStatus === 'audio-only' && !audioOnly.segments.length && !!await storageModule.read(`audio:${audioOnly.id}`), 'audio-only placement atomically saves the original Blob without fabricating subtitles');
+  [...$('playlist-tracks').querySelectorAll('.track-main')].find(row => row.textContent.includes(audioOnly.title)).dispatchEvent(event('click'));
+  await until(() => $('player').open && !audio.paused, 'audio-only playback'); click('toggle-subtitles');
+  check($('transcript-status').textContent.includes('尚無可用字幕') && $('subtitle-list').textContent.includes('尚無字幕'), 'saved audio-only files play normally and explain how to add subtitles later');
+  check($('previous-sentence').disabled && $('next-sentence').disabled && !$('player-play').disabled, 'audio-only playback disables unavailable sentence jumps while keeping transport usable');
+  click('player-close'); await delay(10); failWorker = false; mixedTranscript = true; pickFile(file); submit('file-import-form');
+  await until(() => $('destination-album') && $('action-dialog').open, 'partial output placement');
+  check($('dialog-description').textContent.includes('部分字幕未對齊'), 'partial output is disclosed before placement');
+  $('new-track-title').value = 'Partial subtitle output'; $('destination-album').value = repairTrack.albumId; $('destination-album').dispatchEvent(event('change'));
+  $('replace-track').value = audioOnly.id; await confirm();
+  const partial = (await library()).tracks.find(track => track.title === 'Partial subtitle output');
+  check(partial.transcriptStatus === 'partial' && partial.segments.length === 3 && partial.segments[1].timingUncertain && !partial.segments[0].timingUncertain, 'partial placement preserves healthy sentence timing and retains unaligned text');
+  [...$('playlist-tracks').querySelectorAll('.track-main')].find(row => row.textContent.includes(partial.title)).dispatchEvent(event('click'));
+  await until(() => $('player').open, 'partial player'); click('toggle-subtitles');
+  check($('subtitle-list').querySelectorAll('.subtitle-cue').length === 3 && $('transcript-status').textContent.includes('字幕只完成部分'), 'mixed timing renders one card per available region with a visible completion notice');
+  audio.currentTime = 1.5; audio.dispatchEvent(event('timeupdate'));
+  check($('subtitle-list').querySelectorAll('.active').length === 1 && $('subtitle-list').textContent.includes('較粗的時間範圍'), 'coarse timing stays disclosed and still highlights at most one region');
+  check(mediaDownloads === downloadsBeforeFile && catalogLookups === lookupsBeforeFile && translated === translationsBeforeFile, 'audio-only and partial local results never upload audio or request extra translation');
   console.log(JSON.stringify({ status: 'UI_AND_IDB_SIMULATION_PASS', assertions, externalModuleHosts: [...requests], renderer: 'none; not browser or iPhone verification' }, null, 2));
 } catch (error) {
   console.error(error.stack ?? error);

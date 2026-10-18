@@ -1,4 +1,4 @@
-import { normalizeSegments, groupSentences } from './core.mjs?v=0.2.12';
+import { normalizeSegments, groupSentences } from './core.mjs?v=0.2.13';
 
 export const LIBRARY_KEY = 'library-v2';
 export const MAX_AUDIO_MINUTES = 60;
@@ -58,7 +58,8 @@ export function removeAlbum(library, id) {
 export function placeTrack(library, track, albumId, replaceId) {
   if (!library.albums.some(album => album.id === albumId)) throw new Error('請選擇一個存在的專輯。');
   checkDuration(track.duration, library.settings);
-  const normalized = { ...track, title: title(track.title), albumId, segments: normalizeSegments(track.segments, track.duration) };
+  const segments = track.transcriptStatus === 'audio-only' && Array.isArray(track.segments) && !track.segments.length ? [] : normalizeSegments(track.segments, track.duration);
+  const normalized = { ...track, title: title(track.title), albumId, segments };
   if (!normalized.id || library.tracks.some(item => item.id === normalized.id)) throw new Error('音訊識別碼重複，請重新匯入。');
   const existing = tracksIn(library, albumId);
   if (replaceId && !existing.some(item => item.id === replaceId)) throw new Error('只能替換所選專輯中的音訊。');
@@ -87,4 +88,8 @@ export function legacyLibrary(saved) {
   library.tracks.push(track);
   return { library, audio: { id: track.id, blob: saved.file }, translations: saved.doc.translations || [] };
 }
-export function sentencesFor(track) { return groupSentences(track.segments, track.language); }
+export function sentencesFor(track) {
+  return track.alignment === 'mixed-v1'
+    ? track.segments.map(segment => ({ ...segment, incomplete: groupSentences([segment], track.language)[0]?.incomplete ?? true }))
+    : groupSentences(track.segments, track.language);
+}

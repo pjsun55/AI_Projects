@@ -201,6 +201,41 @@ try {
           await page.locator('#player-close').click();
           console.log(JSON.stringify({ browser: name, viewport, subtitleSize: size, status: 'PASS', captionPixels: layout.listHeight }));
         }
+        phase = 'available-output-persistence';
+        const beforeAvailable = await page.evaluate(async version => {
+          const storage = await import(`./storage.mjs?v=${version}`), library = await import(`./library.mjs?v=${version}`);
+          const original = await storage.read(library.LIBRARY_KEY), audio = await storage.read('audio:fixture-track');
+          let current = original;
+          for (const track of [
+            { id: 'fixture-audio-only', title: 'Audio-only public fixture', duration: 120, segments: [], transcriptStatus: 'audio-only', alignment: 'mixed-v1' },
+            { id: 'fixture-partial', title: 'Partial public fixture', duration: 120, transcriptStatus: 'partial', alignment: 'mixed-v1', segments: [{ start: 0, end: 1, text: 'Aligned public words.' }, { start: 1, end: 2, text: 'Unaligned public words. More words.', timingUncertain: true }] }
+          ]) {
+            const next = { ...library.placeTrack(current, { ...track, size: audio.size, language: 'en' }, original.albums[0].id), revision: current.revision + 1 };
+            await storage.commitLibrary(next, { expectedRevision: current.revision, audio: { id: track.id, blob: audio } }); current = next;
+          }
+          return original;
+        }, version);
+        await page.reload(); await page.locator('[data-tab="playlist"]').click();
+        await page.locator('#playlist-tracks .track-main').filter({ hasText: 'Audio-only public fixture' }).click();
+        await page.waitForFunction(() => !document.getElementById('audio').paused);
+        await expect(page.locator('#transcript-status')).toContainText('尚無可用字幕');
+        await page.locator('#toggle-subtitles').click();
+        await expect(page.locator('#subtitle-list')).toContainText('目前尚無字幕');
+        await page.locator('#player-close').click();
+        await page.locator('#playlist-tracks .track-main').filter({ hasText: 'Partial public fixture' }).click();
+        await page.locator('#toggle-subtitles').click();
+        await expect(page.locator('#subtitle-list .subtitle-cue')).toHaveCount(2);
+        await expect(page.locator('#transcript-status')).toContainText('字幕只完成部分');
+        await expect(page.locator('#subtitle-list')).toContainText('較粗的時間範圍');
+        assert.ok(await page.locator('#subtitle-list').evaluate(list => list.clientHeight >= 40), 'Partial transcript notices must leave room to read the subtitles.');
+        await page.locator('#audio').evaluate(audio => { audio.pause(); audio.currentTime = 1.5; audio.dispatchEvent(new Event('timeupdate')); });
+        await expect(page.locator('#subtitle-list .active')).toHaveCount(1);
+        await page.locator('#player-close').click();
+        await page.evaluate(async ({ version, original }) => {
+          const storage = await import(`./storage.mjs?v=${version}`), current = await storage.read('library-v2');
+          await storage.commitLibrary({ ...original, revision: current.revision + 1 }, { expectedRevision: current.revision, removeIds: ['fixture-audio-only', 'fixture-partial'] });
+        }, { version, original: beforeAvailable });
+        await page.reload();
         if (name === 'chromium') {
           phase = 'offline-preconditions';
           // Cache readiness alone does not establish that this document is

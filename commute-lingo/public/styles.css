@@ -39,7 +39,7 @@ dialog{color:#29202f;border:0;padding:0;max-width:480px;width:100%;box-shadow:0 
 .subtitles-open .player-tools .tool-button{min-height:44px;padding:0 5px;gap:4px}
 .subtitles-open .player-tools select{min-height:44px;padding:7px 8px}
 .subtitles-open #player-feedback{flex:none;margin:0;font-size:.7rem}
-.subtitles-open .transcript-notice{flex:none;margin:3px 0;padding:6px 9px}
+.subtitles-open .transcript-notice{flex:none;margin:3px 0;padding:6px 9px;max-height:120px;overflow-y:auto;overscroll-behavior:contain}
 .subtitles-open .subtitles-panel{display:flex;flex:1;min-height:min(140px,20dvh);flex-direction:column;overflow:hidden;margin-top:4px;padding-top:3px}
 .subtitles-open .subtitle-toolbar{flex:none;min-height:36px}
 .subtitles-open .subtitle-list{flex:1;min-height:0;height:auto;padding-bottom:12px}

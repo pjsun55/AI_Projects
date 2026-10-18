@@ -8,7 +8,7 @@ function fixture(options = {}) {
   const records = [], requests = [], timers = new Map(); let serial = 0;
   registration.waiting = {}; registration.update = async () => { if (options.networkError) throw new Error('offline'); };
   sw.register = async () => registration;
-  const manager = createUpdater({ serviceWorker: sw, version: '0.2.12', isAuto: () => auto, canUpdate: () => !busy,
+  const manager = createUpdater({ serviceWorker: sw, version: '0.2.13', isAuto: () => auto, canUpdate: () => !busy,
     prepare: async () => { records.push('save'); if (options.saveError) throw new Error('save failed'); },
     lock: value => records.push(['lock', value]), render: state => records.push(state), reload: version => records.push(['reload', version]),
     timers: { setTimeout(fn) { const id = ++serial; timers.set(id, fn); return id; }, clearTimeout(id) { timers.delete(id); } },
@@ -66,7 +66,7 @@ test('worker messages return replies and time out without leaving MessagePorts o
 
 test('shell-only updates reload the document; version upgrades retain path and view', () => {
   const calls = [];
-  const location = { href: 'https://example.test/AI_Projects/commute-lingo/?v=0.2.12#settings', reload: () => calls.push('reload'), replace: value => calls.push(value) };
-  reloadVersion(location, '0.2.12'); assert.deepEqual(calls, ['reload']);
+  const location = { href: 'https://example.test/AI_Projects/commute-lingo/?v=0.2.13#settings', reload: () => calls.push('reload'), replace: value => calls.push(value) };
+  reloadVersion(location, '0.2.13'); assert.deepEqual(calls, ['reload']);
   reloadVersion(location, '0.3.0'); assert.equal(calls[1], 'https://example.test/AI_Projects/commute-lingo/?v=0.3.0#settings');
 });

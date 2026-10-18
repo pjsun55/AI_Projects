@@ -1,14 +1,14 @@
-import { formatTime, findActive, transcriptCoverage, toSRT, sentenceTexts } from './core.mjs?v=0.2.12';
-import * as storage from './storage.mjs?v=0.2.12';
-import { createTranslator } from './translation.mjs?v=0.2.12';
-import { DEFAULT_SETTINGS, LIBRARY_KEY, emptyLibrary, validateSettings, title, tracksIn, addAlbum, removeAlbum, removeTrack, rename, placeTrack, changeSettings, libraryBytes, playbackQueue, sentenceTarget, sentencesFor, legacyLibrary, newId } from './library.mjs?v=0.2.12';
-import { importPodcast, importAudioFile, transcribeSavedAudio } from './source.mjs?v=0.2.12';
-import { icon, fillIcons } from './icons.mjs?v=0.2.12';
-import { longPress, isMobileLandscape } from './gestures.mjs?v=0.2.12';
-import { zipFiles } from './backup.mjs?v=0.2.12';
-import { createSubtitleFollow, subtitleScrollTop, sentenceReadingParts, createAudioExcerpt } from './subtitles.mjs?v=0.2.12';
-import { createUpdater, reloadVersion } from './updates.mjs?v=0.2.12';
-import { holdScreenAwake } from './wake-lock.mjs?v=0.2.12';
+import { formatTime, findActive, transcriptCoverage, toSRT, sentenceTexts } from './core.mjs?v=0.2.13';
+import * as storage from './storage.mjs?v=0.2.13';
+import { createTranslator } from './translation.mjs?v=0.2.13';
+import { DEFAULT_SETTINGS, LIBRARY_KEY, emptyLibrary, validateSettings, title, tracksIn, addAlbum, removeAlbum, removeTrack, rename, placeTrack, changeSettings, libraryBytes, playbackQueue, sentenceTarget, sentencesFor, legacyLibrary, newId } from './library.mjs?v=0.2.13';
+import { importPodcast, importAudioFile, transcribeSavedAudio } from './source.mjs?v=0.2.13';
+import { icon, fillIcons } from './icons.mjs?v=0.2.13';
+import { longPress, isMobileLandscape } from './gestures.mjs?v=0.2.13';
+import { zipFiles } from './backup.mjs?v=0.2.13';
+import { createSubtitleFollow, subtitleScrollTop, sentenceReadingParts, createAudioExcerpt } from './subtitles.mjs?v=0.2.13';
+import { createUpdater, reloadVersion } from './updates.mjs?v=0.2.13';
+import { holdScreenAwake } from './wake-lock.mjs?v=0.2.13';
 
 const $ = id => document.getElementById(id);
 const audio = $('audio');
@@ -25,7 +25,7 @@ const currentTrack = () => state.library.tracks.find(track => track.id === state
 const albumOf = track => state.library.albums.find(album => album.id === track?.albumId);
 const safe = action => (...args) => { try { return Promise.resolve(action(...args)).catch(error => notify(error.message, true)); } catch (error) { notify(error.message, true); } };
 const updater = createUpdater({
-  serviceWorker: navigator.serviceWorker, version: '0.2.12',
+  serviceWorker: navigator.serviceWorker, version: '0.2.13',
   isAuto: () => state.library.settings.autoUpdate,
   visible: () => !document.hidden,
   canUpdate: () => state.ready && audio.paused && !state.loadingAudio && !state.job && !state.pending && !state.writing && !state.clearing && !state.backup && !state.translation && !state.settingsDirty && !$('player').open && !$('action-dialog').open && !$('source-url').value.trim() && !state.file && !document.activeElement?.matches?.('input,select,textarea'),
@@ -165,7 +165,7 @@ function applyAppearance(settings) {
   document.documentElement.style.setProperty('--subtitle-size', { normal: '18.4px', large: '22.4px', xlarge: '27.2px' }[settings.subtitleSize]);
   $('brand-icon').src = `./icon-${settings.icon}.svg`; $('favicon').href = `./icon-${settings.icon}.svg`;
   $('touch-icon').href = `./icon-${settings.icon}-192.png`;
-  $('manifest').href = `./manifest-${settings.icon}.webmanifest?v=0.2.12`;
+  $('manifest').href = `./manifest-${settings.icon}.webmanifest?v=0.2.13`;
 }
 async function refreshStorage() {
   const total = libraryBytes(state.library);
@@ -283,11 +283,16 @@ function setImportProgress({ stage = state.importStage || 'source', message, err
   const stages = ['source', 'download', 'decode', 'transcribe', 'save'], index = stages.indexOf(stage);
   state.importStage = stage;
   $('import-progress').hidden = false; $('import-progress').classList.toggle('error', error);
-  $('import-stage').textContent = error ? '這次匯入已停止' : stage === 'save' ? '字幕準備好了' : '正在準備你的聆聽';
+  $('import-stage').textContent = error ? '這次匯入已停止' : stage === 'save' ? '音訊已準備好' : '正在準備你的聆聽';
   $('import-message').textContent = message; $('import-spinner').hidden = error || !state.job;
   document.querySelectorAll('[data-stage]').forEach(item => { const n = stages.indexOf(item.dataset.stage); item.classList.toggle('current', n === index); item.classList.toggle('done', n < index); });
   $('cancel-import').hidden = !state.job; $('finish-import').hidden = !state.pending; $('discard-import').hidden = !state.pending;
   updateSourceControls();
+}
+function transcriptSummary(track) {
+  if (track.transcriptStatus === 'audio-only') return '音訊可保存與播放；這次沒有可用字幕，之後可重新產生。';
+  if (track.transcriptStatus === 'partial' || track.segments?.some(segment => segment.timingUncertain)) return '音訊與可用文字已保留；部分字幕未對齊或尚未辨識，已標示，可之後重新產生。';
+  return '音訊與原文字幕已完成。';
 }
 function cancelImport(message = '匯入已停止，原有收藏保持完整。') {
   state.epoch++; state.job?.abort(); state.job = null;
@@ -311,7 +316,7 @@ async function startImport(event, type = 'podcast') {
     await awake.release();
     if (epoch !== state.epoch || controller.signal.aborted) return;
     state.job = null; state.pending = { ...result, track: { ...result.track, id: newId() } };
-    setImportProgress({ stage: 'save', message: `「${result.track.title}」已完成 ${clock(result.track.duration)} 音訊與原文字幕，請選擇要加入的專輯。尚未占用收藏名額。${result.track.metrics?.timestampWarnings?.length ? ' 部分原文缺少精確時間，已保留文字並標示較粗時間範圍，請抽查對照音訊。' : ''}` });
+    setImportProgress({ stage: 'save', message: `「${result.track.title}」${clock(result.track.duration)}，${transcriptSummary(result.track)}請選擇要加入的專輯，尚未占用收藏名額。` });
     await finishImport();
   } catch (error) {
     if (epoch === state.epoch) { state.job = null; setImportProgress({ message: error.name === 'AbortError' ? type === 'podcast' && transferTimer ? '來源讀取已取消或超過 3 分鐘；請確認網路後重試。' : '音檔匯入已停止，原有收藏保持完整。' : error.message, error: true }); }
@@ -334,16 +339,21 @@ async function regenerateTranscript(id) {
     if (epoch !== state.epoch || controller.signal.aborted) return;
     const transcript = await transcribeSavedAudio(blob, { ...state.library.settings, language: track.language }, { signal: controller.signal, progress: data => { if (epoch === state.epoch) setImportProgress(data); } });
     if (epoch !== state.epoch || controller.signal.aborted) return;
+    if (!transcript.segments.length) {
+      state.job = null;
+      setImportProgress({ stage: 'save', message: '這次未取得新字幕，原有音訊與字幕保持完整，可稍後重試。' });
+      return;
+    }
     if (!state.library.tracks.some(item => item.id === id)) throw new Error('這個音訊已在其他分頁移除，沒有寫入字幕。');
     state.job = null;
     $('cancel-import').disabled = true;
     try { await commit({ ...state.library, tracks: state.library.tracks.map(item => item.id === id ? { ...item, ...transcript } : item) }); }
     finally { $('cancel-import').disabled = false; }
     if (state.current === id) { state.sentences = sentencesFor(currentTrack()); renderSubtitles(); updateTimeline(); }
-    setImportProgress({ stage: 'save', message: '字幕已更新，音訊與收藏位置保持不變。' });
+    setImportProgress({ stage: 'save', message: `${transcriptSummary(transcript)}音訊與收藏位置保持不變。` });
     $('import-progress').hidden = true; showView('playlist');
     if (state.current === id) openPlayer();
-    notify('已使用保存的音訊重新產生字幕，沒有重新下載音檔。');
+    notify(transcript.transcriptStatus === 'partial' ? transcriptSummary(transcript) : '已使用保存的音訊重新產生字幕，沒有重新下載音檔。');
   } catch (error) {
     if (epoch === state.epoch) { state.job = null; setImportProgress({ message: `${error.name === 'AbortError' ? '字幕更新已停止。' : error.message} 原有音訊與字幕已保留。`, error: true }); }
   } finally { await awake.release(); }
@@ -352,7 +362,7 @@ async function finishImport() {
   if (!state.pending || state.job) return;
   let name, destination, newName, replaceAlbum, replaceTrack, extra;
   const pending = state.pending;
-  const result = await ask({ heading: '把這段聲音，放進專輯', description: '音訊與字幕已準備完成。滿額時請指定替換對象；按下確認後，才會移除所選舊資料。', confirm: '確認加入／替換',
+  const result = await ask({ heading: '把這段聲音，放進專輯', description: `${transcriptSummary(pending.track)}滿額時請指定替換對象；按下確認後，才會移除所選舊資料。`, confirm: '確認加入／替換',
     build: root => {
       name = textField(root, '音訊名稱', pending.track.title, 'new-track-title');
       destination = selectField(root, '加入專輯', [['', '請選擇專輯'], ...state.library.albums.map(album => [album.id, `${album.title}（${tracksIn(state.library, album.id).length}/${state.library.settings.trackLimit}）`]), ['__new', '＋ 建立新專輯']], 'destination-album');
@@ -383,7 +393,7 @@ async function finishImport() {
       state.pending = null; return true;
     }
   });
-  if (result) { $('source-url').value = ''; clearAudioFile(); $('import-progress').hidden = true; updateSourceControls(); state.album = state.library.tracks.find(track => track.id === pending.track.id)?.albumId || null; renderPlaylist(); showView('playlist'); notify('音訊與字幕已加入專輯，準備好就出發。'); }
+  if (result) { $('source-url').value = ''; clearAudioFile(); $('import-progress').hidden = true; updateSourceControls(); state.album = state.library.tracks.find(track => track.id === pending.track.id)?.albumId || null; renderPlaylist(); showView('playlist'); notify(pending.track.transcriptStatus === 'complete' ? '音訊與字幕已加入專輯，準備好就出發。' : `已加入專輯。${transcriptSummary(pending.track)}`); }
 }
 
 function closeTranslation() {
@@ -413,9 +423,10 @@ async function translateSentence(index, selectedText) {
 function renderSubtitles() {
   state.gestureCleanups.forEach(cleanup => cleanup()); state.gestureCleanups = [];
   const root = $('subtitle-list'); root.replaceChildren();
+  if (!state.sentences.length) root.append(node('p', 'small', '目前尚無字幕。原音可正常播放，也可稍後重新產生字幕。'));
   state.sentences.forEach((cue, index) => {
     const row = node('div', 'subtitle-cue');
-    const texts = currentTrack()?.alignment === 'word-v1' ? [cue.text] : sentenceTexts(cue.text, currentTrack()?.language);
+    const texts = ['word-v1', 'mixed-v1'].includes(currentTrack()?.alignment) ? [cue.text] : sentenceTexts(cue.text, currentTrack()?.language);
     for (const text of texts) {
       const sentence = node('button', 'sentence-text'); sentence.type = 'button';
       for (const part of sentenceReadingParts(text)) sentence.append(node('span', 'sentence-phrase', part));
@@ -514,6 +525,7 @@ function seekPlayback(target, resume = !audio.paused) {
 }
 function seekSentence(direction) {
   if (state.updating) return;
+  if (!state.sentences.length) { $('player-feedback').textContent = '目前尚無字幕，可使用播放進度移動。'; return; }
   const target = sentenceTarget(state.sentences, audio.currentTime || 0, direction);
   if (target === null) { $('player-feedback').textContent = '已到最後一句。'; return; }
   seekPlayback(target);
@@ -525,6 +537,7 @@ function updatePlayer() {
   $('player-title').textContent = track.title; $('player-show').textContent = track.show || '你的通勤語言時光'; $('player-album').textContent = albumOf(track)?.title || '';
   cover($('mini-cover'), track.albumId); cover($('player-art'), track.albumId);
   for (const id of ['mini-play', 'player-play']) { $(id).innerHTML = icon(audio.paused ? 'play' : 'pause'); $(id).setAttribute('aria-label', audio.paused ? '播放' : '暫停'); }
+  for (const id of ['mini-next', 'previous-sentence', 'next-sentence']) $(id).disabled = !state.sentences.length;
   updateTimeline();
 }
 function updateTimeline() {
@@ -540,9 +553,11 @@ function updateTimeline() {
   highlight();
   const coverage = transcriptCoverage(track.segments, duration);
   const timingUncertain = track.segments.some(segment => segment.timingUncertain);
-  $('transcript-notice').hidden = !coverage.needsReview && !timingUncertain;
+  const audioOnly = !track.segments.length, partial = track.transcriptStatus === 'partial';
+  $('transcript-notice').hidden = !coverage.needsReview && !timingUncertain && !partial;
   $('transcript-status').textContent = [
-    coverage.needsReview ? `${time > coverage.timedEnd ? '目前播放位置沒有已確認的字幕。' : '字幕尾段可能不完整。'}字幕時間至 ${clock(coverage.timedEnd)}，音訊全長 ${clock(duration)}。可用已保存音訊重新產生字幕。` : '',
+    audioOnly ? '這份音訊尚無可用字幕，原音已保存且可正常播放；可稍後重新產生字幕。' : coverage.needsReview ? `${time > coverage.timedEnd ? '目前播放位置沒有已確認的字幕。' : '字幕尾段可能不完整。'}字幕時間至 ${clock(coverage.timedEnd)}，音訊全長 ${clock(duration)}。可用已保存音訊重新產生字幕。` : '',
+    partial ? '字幕只完成部分內容或時間對齊，未完成的部分不影響原音播放。' : '',
     timingUncertain ? '部分原文的模型時間不完整，已保留文字並標示較粗時間範圍，不代表精確句子對齊；可重新產生字幕。' : ''
   ].filter(Boolean).join(' ');
   $('regenerate-subtitles').disabled = !!state.job || state.writing;
@@ -577,7 +592,9 @@ async function backup(tracks = state.library.tracks) {
       const ext = /wav/.test(blob.type) ? 'wav' : /mp4|m4a/.test(blob.type) ? 'm4a' : /ogg/.test(blob.type) ? 'ogg' : /flac/.test(blob.type) ? 'flac' : /webm/.test(blob.type) ? 'webm' : /aac/.test(blob.type) ? 'aac' : 'mp3';
       const progress = await storage.read(`progress:${track.id}`);
       metadata.library.tracks.push({ ...track, position: progress?.position ?? track.position ?? 0, audioFile: `audio/${track.id}.${ext}` });
-      files.push({ name: `audio/${track.id}.${ext}`, blob }, { name: `subtitles/${track.id}.srt`, blob: new Blob([toSRT(sentencesFor(track))]) });
+      files.push({ name: `audio/${track.id}.${ext}`, blob });
+      if (track.segments.length) files.push({ name: `subtitles/${track.id}.srt`, blob: new Blob([toSRT(sentencesFor(track))]) });
+      files.push({ name: `transcripts/${track.id}.txt`, blob: new Blob([`${transcriptSummary(track)}\n\n${track.segments.map(segment => `${segment.timingUncertain ? '[時間未精確對齊] ' : ''}${segment.text}`).join('\n\n')}`], { type: 'text/plain;charset=utf-8' }) });
     }
     files.push({ name: 'library.json', blob: new Blob([JSON.stringify(metadata, null, 2)], { type: 'application/json' }) });
     const archive = await zipFiles(files, { signal: controller.signal });
@@ -705,7 +722,7 @@ async function offlineStatus() {
     const check = () => {
       const channel = new MessageChannel();
       const timer = setTimeout(() => { channel.port1.close(); $('offline-status').textContent = '新版可在線使用；請在保存後關閉舊分頁再開啟，以更新離線頁面。'; }, 2000);
-      channel.port1.onmessage = ({ data }) => { clearTimeout(timer); channel.port1.close(); $('offline-status').textContent = data.version === '0.2.12' && data.ready ? '頁面已可離線使用；已收藏的音訊與快取翻譯可離線讀取，新匯入與新翻譯需要連線。' : '新版可在線使用，離線頁面尚待更新。'; };
+      channel.port1.onmessage = ({ data }) => { clearTimeout(timer); channel.port1.close(); $('offline-status').textContent = data.version === '0.2.13' && data.ready ? '頁面已可離線使用；已收藏的音訊與快取翻譯可離線讀取，新匯入與新翻譯需要連線。' : '新版可在線使用，離線頁面尚待更新。'; };
       registration.active?.postMessage({ type: 'CACHE_VERSION' }, [channel.port2]);
     };
     navigator.serviceWorker.addEventListener('controllerchange', check); check();

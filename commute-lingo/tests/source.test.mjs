@@ -58,16 +58,18 @@ test('file import rejects empty, oversized, unsupported, mismatched or disguised
   }
   assert.equal(probed, 0);
 });
-test('file import enforces the measured duration, rejects truncated decoding/ASR and propagates decoding failure', async () => {
+test('file import enforces duration and decoding while unavailable subtitles still leave usable audio', async () => {
   for (const [overrides, message] of [
     [{ durationOf: async () => 1501, decode: async () => { throw new Error('must not decode'); } }, /超過目前 25/],
     [{ decode: async () => ({ samples: new Float32Array(16000), decoder: 'fixture' }) }, /解碼長度/],
-    [{ transcribe: async () => ({ processedSeconds: 1, chunks: [] }) }, /沒有走完整/],
     [{ decode: async () => { throw new Error('Unreadable audio'); } }, /Unreadable audio/]
   ]) {
     const { dependencies } = pipeline(overrides);
     await assert.rejects(importAudioFile(audioFile(), DEFAULT_SETTINGS, dependencies), message);
   }
+  const { dependencies } = pipeline({ transcribe: async () => ({ processedSeconds: 1, chunks: [] }) });
+  const result = await importAudioFile(audioFile(), DEFAULT_SETTINGS, dependencies);
+  assert.equal(result.track.transcriptStatus, 'audio-only'); assert.equal(result.track.segments.length, 0); assert.equal(result.blob.size, audioFile().size);
 });
 test('file import cancellation prevents the next stage and filenames remain bounded plain metadata', async () => {
   const controller = new AbortController(); let decoded = false;
@@ -99,7 +101,10 @@ test('automatic transcription retains model text with disclosed timing repairs',
   assert.equal(result.track.segments.length, 2); assert.equal(result.track.segments[0].timingUncertain, true);
   assert.equal(result.track.metrics.timestampWarnings.length, 1); assert.equal(result.track.segments[0].text, 'Start words.');
   const broken = pipeline({ transcribe: async () => ({ processedSeconds: 60, chunks: [{ timestamp: [55, 1], text: 'Invalid.' }] }) });
-  await assert.rejects(importPodcast(link, DEFAULT_SETTINGS, broken.dependencies), /時間無法安全對齊/);
+  const kept = await importPodcast(link, DEFAULT_SETTINGS, broken.dependencies);
+  assert.equal(kept.track.transcriptStatus, 'partial'); assert.equal(kept.track.segments[0].text, 'Invalid.');
+  assert.deepEqual([kept.track.segments[0].start, kept.track.segments[0].end], [0, 60]);
+  assert.equal(kept.track.segments[0].timingUncertain, true);
 });
 test('word timing becomes independent sentence ranges with exact model anchors and no mutation', async () => {
   const chunks = [
@@ -120,8 +125,8 @@ test('measured duration is checked before decoder or ASR, even without catalog d
   const { dependencies } = pipeline({ durationOf: async () => 1500.01, decode: async () => { throw new Error('must not decode'); } });
   await assert.rejects(importPodcast(link, DEFAULT_SETTINGS, dependencies), /超過/);
 });
-test('errors at each stage terminate without proceeding; a truncated ASR result cannot succeed', async () => {
-  for (const stage of ['resolve', 'download', 'durationOf', 'decode', 'transcribe']) {
+test('source and decoder errors stop, while ASR errors and incomplete results preserve audio with truthful status', async () => {
+  for (const stage of ['resolve', 'download', 'durationOf', 'decode']) {
     let after = 0;
     const { dependencies } = pipeline(); const keys = ['resolve', 'download', 'durationOf', 'decode', 'transcribe'];
     for (const key of keys.slice(keys.indexOf(stage) + 1)) dependencies[key] = async () => { after++; throw new Error('unexpected continuation'); };
@@ -129,7 +134,30 @@ test('errors at each stage terminate without proceeding; a truncated ASR result 
     await assert.rejects(importPodcast(link, DEFAULT_SETTINGS, dependencies), /stage failed/); assert.equal(after, 0);
   }
   const { dependencies } = pipeline({ transcribe: async () => ({ processedSeconds: 15, chunks: [] }) });
-  await assert.rejects(importPodcast(link, DEFAULT_SETTINGS, dependencies), /沒有走完整/);
+  const result = await importPodcast(link, DEFAULT_SETTINGS, dependencies);
+  assert.equal(result.track.transcriptStatus, 'audio-only'); assert.equal(result.track.metrics.asrProcessedSeconds, 15);
+  const failed = pipeline({ transcribe: async () => { throw new Error('model unavailable'); } });
+  const audioOnly = await importPodcast(link, DEFAULT_SETTINGS, failed.dependencies);
+  assert.equal(audioOnly.track.transcriptStatus, 'audio-only'); assert.ok(audioOnly.blob.size > 0);
+  const networkAbort = pipeline({ transcribe: async () => { throw new DOMException('Model fetch stopped', 'AbortError'); } });
+  assert.equal((await importPodcast(link, DEFAULT_SETTINGS, networkAbort.dependencies)).track.transcriptStatus, 'audio-only');
+});
+test('a worker crash retains bounded local checkpoints and stops the worker', async () => {
+  let ended = 0;
+  const worker = { postMessage() {}, terminate() { ended++; } };
+  const promise = workerTranscript(new Float32Array(60 * 16000), { createWorker: () => worker });
+  worker.onmessage({ data: { type: 'checkpoint', chunk: { start: 0, end: 30, text: 'Recognized before crash.' } } });
+  worker.onmessage({ data: { type: 'checkpoint', chunk: { start: -1, end: 99, text: 'Untrusted out-of-range checkpoint.' } } });
+  worker.onerror(new Error('Worker stopped'));
+  const output = await promise;
+  assert.equal(ended, 1); assert.equal(output.incomplete, true); assert.equal(output.processedSeconds, 30);
+  assert.equal(output.fallbackChunks.length, 1); assert.equal(output.fallbackChunks[0].text, 'Recognized before crash.');
+});
+test('only bounded known model diagnostics are persisted with available audio', async () => {
+  const { dependencies } = pipeline({ transcribe: async () => ({ processedSeconds: 60, timestampMode: 'word', chunks: [{ timestamp: [1, 2], text: 'Valid.' }], metrics: { model: 'x'.repeat(1000), inferenceSeconds: Infinity, windowCount: 2, unexpected: { payload: 'discard' } } }) });
+  const result = await importPodcast(link, DEFAULT_SETTINGS, dependencies);
+  assert.equal(result.track.metrics.model.length, 100); assert.equal(result.track.metrics.inferenceSeconds, undefined);
+  assert.equal(result.track.metrics.windowCount, 2); assert.equal(result.track.metrics.unexpected, undefined);
 });
 test('cancellation after a late stage result does not start the next stage', async () => {
   const controller = new AbortController(); let downloaded = false;

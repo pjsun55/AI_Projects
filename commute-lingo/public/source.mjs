@@ -1,7 +1,7 @@
-import { appleLookupURL, normalizeGeneratedSegments, normalizeWordSentences, checkDecodedAudio } from './core.mjs?v=0.2.12';
-import { checkDuration } from './library.mjs?v=0.2.12';
-import { isMP3, decodeInWorker } from './decode.mjs?v=0.2.12';
-import { publicAudioURL, readJSON } from './network.mjs?v=0.2.12';
+import { appleLookupURL, availableTranscript, checkDecodedAudio } from './core.mjs?v=0.2.13';
+import { checkDuration } from './library.mjs?v=0.2.13';
+import { isMP3, decodeInWorker } from './decode.mjs?v=0.2.13';
+import { publicAudioURL, readJSON } from './network.mjs?v=0.2.13';
 
 const MAX_BYTES = 250 * 1024 * 1024;
 const cancelled = signal => { if (signal?.aborted) throw new DOMException('已取消', 'AbortError'); };
@@ -72,23 +72,32 @@ export function audioDuration(blob, { signal, AudioClass = Audio, urlAPI = URL }
     probe.preload = 'metadata'; probe.src = url;
   });
 }
-export function workerTranscript(samples, { language, model, signal, progress = () => {}, createWorker = () => new Worker(new URL('./transcriber.mjs?v=0.2.12', import.meta.url), { type: 'module' }) } = {}) {
+export function workerTranscript(samples, { language, model, signal, progress = () => {}, createWorker = () => new Worker(new URL('./transcriber.mjs?v=0.2.13', import.meta.url), { type: 'module' }) } = {}) {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) { reject(new DOMException('已取消', 'AbortError')); return; }
-    const worker = createWorker(); let settled = false;
+    const worker = createWorker(), seconds = samples.length / 16000, checkpoints = [];
+    let settled = false, checkpointCharacters = 0, processedSeconds = 0;
     const finish = (error, output) => {
       if (settled) return; settled = true; signal?.removeEventListener('abort', abort);
       worker.onmessage = worker.onerror = null; worker.terminate(); if (error) reject(error); else resolve(output);
     };
     const abort = () => finish(new DOMException('已取消', 'AbortError'));
+    const salvage = () => finish(null, { timestampMode: 'mixed', chunks: [], fallbackChunks: checkpoints, processedSeconds, incomplete: true, warningCodes: ['worker-failed'] });
     signal?.addEventListener('abort', abort, { once: true });
     worker.onmessage = ({ data }) => {
-      if (settled) return;
-      if (data.type === 'progress') progress(data.message);
+      if (settled || !data || typeof data !== 'object') return;
+      if (data.type === 'checkpoint') {
+        const item = data.chunk;
+        if (item && Number.isFinite(item.start) && Number.isFinite(item.end) && item.start >= 0 && item.end > item.start && item.end <= seconds + .1 && typeof item.text === 'string' && item.text.length <= 20000 && checkpoints.length < 400 && checkpointCharacters + item.text.length <= 500000) {
+          processedSeconds = Math.max(processedSeconds, item.end);
+          checkpoints.push({ start: item.start, end: item.end, text: item.text, timingUncertain: true }); checkpointCharacters += item.text.length;
+        }
+      }
+      else if (data.type === 'progress') progress(typeof data.message === 'string' ? data.message.slice(0, 1000) : '');
       else if (data.type === 'complete') finish(null, data);
-      else if (data.type === 'error') finish(new Error(data.message));
+      else if (data.type === 'error') salvage();
     };
-    worker.onerror = () => finish(new Error('無法啟動字幕轉錄，請確認連線後重試。'));
+    worker.onerror = salvage;
     try { worker.postMessage({ type: 'transcribe', samples, language, model }, [samples.buffer]); } catch (error) { finish(error); }
   });
 }
@@ -161,9 +170,15 @@ export async function transcribeSavedAudio(blob, settings, {
   const decodedSeconds = checkDecodedAudio(decoded.samples.length, 16000, duration);
   const decodeSeconds = (performance.now() - started) / 1000;
   progress({ stage: 'transcribe', message: '正在準備字幕模型…' });
-  const output = await transcribe(decoded.samples, { signal, language: settings.language, model: settings.model, progress: message => progress({ stage: 'transcribe', message }) }); cancelled(signal);
-  if (!Number.isFinite(output.processedSeconds) || Math.abs(output.processedSeconds - decodedSeconds) > 0.1) throw new Error('字幕轉錄沒有走完整份音訊，已停止匯入。');
-  const wordTiming = output.timestampMode === 'word';
-  const { segments, warnings, duplicateSentences = 0 } = wordTiming ? normalizeWordSentences(output.chunks, duration, settings.language) : normalizeGeneratedSegments(output.chunks, duration);
-  return { duration, segments, alignment: wordTiming ? 'word-v1' : 'segment-v1', metrics: { ...output.metrics, timestampMode: wordTiming ? 'word' : 'segment', duplicateSentences, timestampWarnings: warnings, decoder: decoded.decoder, decodedSeconds, decodeSeconds, totalSeconds: (performance.now() - started) / 1000 } };
+  let output;
+  try { output = await transcribe(decoded.samples, { signal, language: settings.language, model: settings.model, progress: message => progress({ stage: 'transcribe', message }) }); }
+  catch { cancelled(signal); output = { chunks: [], processedSeconds: 0, incomplete: true, warningCodes: ['transcription-failed'] }; }
+  cancelled(signal);
+  const { segments, warnings, duplicateSentences, transcriptStatus, alignment } = availableTranscript(output, duration, settings.language);
+  const metrics = {};
+  if (typeof output?.metrics?.model === 'string') metrics.model = output.metrics.model.slice(0, 100);
+  for (const key of ['windowCount', 'repairedWindows', 'inferenceWindows', 'audioSeconds', 'modelLoadSeconds', 'inferenceSeconds']) {
+    const value = output?.metrics?.[key]; if (Number.isFinite(value) && value >= 0) metrics[key] = value;
+  }
+  return { duration, segments, alignment, transcriptStatus, metrics: { ...metrics, timestampMode: ['word', 'segment', 'mixed'].includes(output?.timestampMode) ? output.timestampMode : 'none', asrProcessedSeconds: Number.isFinite(output?.processedSeconds) ? output.processedSeconds : 0, duplicateSentences, timestampWarnings: warnings, decoder: decoded.decoder, decodedSeconds, decodeSeconds, totalSeconds: (performance.now() - started) / 1000 } };
 }

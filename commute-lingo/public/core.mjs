@@ -193,11 +193,108 @@ export function normalizeWordSentences(input, duration, language = 'en') {
   return { segments: normalizeSegments(sentences, duration), warnings: [], duplicateSentences };
 }
 
+// Generated subtitles are optional output of a valid audio import. Keep strict
+// subtitle-file validation above, but retain bounded model text when timing or
+// a worker fails. Coarse ranges describe real audio windows, not invented word
+// timing. No placeholder sentence is inserted when recognition produced none.
+export function availableTranscript(output, duration, language = 'en') {
+  if (!Number.isFinite(duration) || duration <= 0) throw new Error('音訊長度無效。');
+  output = output && typeof output === 'object' ? output : {};
+  const segments = [], warnings = [];
+  let duplicateSentences = 0, characters = 0;
+  const warn = (type, range) => { if (warnings.length < 400) warnings.push({ type, ...(range ? { range } : {}) }); };
+  const safeChunks = chunks => Array.isArray(chunks) && chunks.length <= 20000 && chunks.every(item => typeof item?.text === 'string' && item.text.length <= 20000)
+    && chunks.reduce((sum, item) => sum + item.text.length, 0) <= 500000;
+  const add = items => {
+    for (const item of items) {
+      if (segments.length >= 20000 || characters + item.text.length > 500000) { warn('output-limit'); break; }
+      segments.push(item); characters += item.text.length;
+    }
+  };
+  const coarse = chunks => {
+    if (!Array.isArray(chunks)) return;
+    for (const item of chunks.slice(0, 20000)) {
+      if (typeof item?.text !== 'string') continue;
+      const limit = Math.min(20000, 500000 - characters);
+      if (item.text.length > limit) warn('output-limit');
+      const text = plainText(item.text.slice(0, limit));
+      if (!text) continue;
+      let start = item.start, end = item.end;
+      if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start || start >= duration || end > duration + 0.1) { start = 0; end = duration; }
+      add([{ start, end: Math.min(end, duration), text, timingUncertain: true }]);
+    }
+  };
+  const normalize = (chunks, mode) => {
+    if (!safeChunks(chunks)) throw new Error('Invalid generated text');
+    const result = mode === 'word' ? normalizeWordSentences(chunks, duration, language) : normalizeGeneratedSegments(chunks, duration);
+    duplicateSentences += result.duplicateSentences || 0;
+    for (const warning of result.warnings || []) warn(warning.type, warning.range);
+    return result.segments;
+  };
+  const rescueWords = (chunks, fallback) => {
+    if (!safeChunks(chunks)) return false;
+    let pending = [];
+    const flush = () => {
+      if (!pending.length) return;
+      try { add(normalize(pending, 'word')); }
+      catch {
+        const anchors = pending.flatMap(item => Array.isArray(item.timestamp) ? item.timestamp.filter(time => Number.isFinite(time) && time >= 0 && time <= duration) : []);
+        const windows = (Array.isArray(fallback) ? fallback : []).slice(0, 400).filter(item => Number.isFinite(item?.start) && Number.isFinite(item?.end) && item.start >= 0 && item.end > item.start && item.end <= duration + .1);
+        const nearby = windows.filter(item => anchors.some(time => time >= item.start && time <= item.end));
+        const candidates = nearby.length ? nearby : windows;
+        const start = candidates.length ? Math.min(...candidates.map(item => item.start)) : 0;
+        const end = candidates.length ? Math.max(...candidates.map(item => item.end)) : duration;
+        coarse([{ start, end, text: pending.map(item => plainText(item.text)).join(' ') }]);
+        warn('coarse-sentence', [start, Math.min(end, duration)]);
+      }
+      pending = [];
+    };
+    for (const item of chunks) { pending.push(item); if (sentenceEnd(item.text.trim())) flush(); }
+    flush(); return true;
+  };
+  let precise = false;
+  if (output.timestampMode !== 'mixed') {
+    try { add(normalize(output.chunks, output.timestampMode === 'word' ? 'word' : 'segment')); precise = true; }
+    catch { warn('normalization-fallback'); }
+  }
+  if (!precise) {
+    if (Array.isArray(output.regions) && output.regions.length <= 400) {
+      for (const region of output.regions) {
+        if (segments.length >= 20000 || characters >= 500000) { warn('output-limit'); break; }
+        try {
+          if (!['word', 'segment'].includes(region?.mode)) throw new Error('Coarse region');
+          add(normalize(region.chunks, region.mode));
+        } catch {
+          if (region?.mode !== 'word' || !rescueWords(region.chunks, region.fallbackChunks)) coarse(region?.fallbackChunks);
+          warn('coarse-window');
+        }
+      }
+    }
+    else if (output.timestampMode === 'word') rescueWords(output.chunks, output.fallbackChunks);
+    if (!segments.length) coarse(output.fallbackChunks?.length ? output.fallbackChunks : output.chunks);
+  }
+  for (const range of (Array.isArray(output.boundaries) ? output.boundaries : []).slice(0, 400)) {
+    if (!Array.isArray(range) || range.length !== 2 || !range.every(Number.isFinite) || range[0] < 0 || range[1] <= range[0] || range[1] > duration + .1) continue;
+    for (const segment of segments) if (segment.start < range[1] && segment.end > range[0]) segment.timingUncertain = true;
+    warn('overlap-boundary', range);
+  }
+  for (const range of (Array.isArray(output.missingRanges) ? output.missingRanges : []).slice(0, 400)) {
+    if (Array.isArray(range) && range.length === 2 && range.every(Number.isFinite) && range[0] >= 0 && range[1] > range[0] && range[1] <= duration + .1) warn('missing-words', range);
+  }
+  if (!Number.isFinite(output.processedSeconds) || Math.abs(output.processedSeconds - duration) > .1 || output.incomplete) warn('partial-inference');
+  if (Array.isArray(output.warningCodes) && output.warningCodes.length) warn('model-warning');
+  if (!warnings.length && segments.some(segment => segment.timingUncertain)) warn('coarse-timing');
+  if (!segments.length) warn('no-transcript');
+  const transcriptStatus = !segments.length ? 'audio-only' : warnings.length ? 'partial' : 'complete';
+  return { segments: segments.sort((a, b) => a.start - b.start), warnings, duplicateSentences, transcriptStatus,
+    alignment: transcriptStatus === 'complete' ? output.timestampMode === 'word' ? 'word-v1' : 'segment-v1' : 'mixed-v1' };
+}
+
 export function transcriptCoverage(segments, duration) {
   const lastStart = segments.at(-1)?.start ?? 0;
   const timedEnd = Math.max(lastStart, 0, ...segments.filter(s => !s.inferredEnd).map(s => s.end));
   const trailingSeconds = Math.max(0, duration - timedEnd);
-  return { lastStart, timedEnd, trailingSeconds, needsReview: segments.length > 0 && trailingSeconds > Math.max(30, duration * 0.03) };
+  return { lastStart, timedEnd, trailingSeconds, needsReview: !segments.length || trailingSeconds > Math.max(30, duration * 0.03) };
 }
 
 // Several sentences can share one source cue. Keep that original timing, but

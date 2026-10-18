@@ -167,3 +167,53 @@ test('fractional final-window recovery preserves exact coverage and tiny invalid
   await assert.rejects(transcribeWindows(tiny.pipeline, new Float32Array(30)), /仍無法對齊/);
   assert.equal(tiny.generated.length, 1); assert.equal(tiny.live(), 0);
 });
+
+test('resilient mode keeps failed recovery text, continues later audio and emits local checkpoints', async () => {
+  const f = collapsedFixture(input => input.first === 800 && input.length === 300, true), checkpoints = [];
+  f.pipeline.tokenizer.decode = () => 'Recognized window words.';
+  const output = await transcribeWindows(f.pipeline, Float32Array.from({ length: 1400 }, (_, i) => i), { allowPartial: true, checkpoint: item => checkpoints.push(item) });
+  assert.equal(output.processedSeconds, 140); assert.equal(output.timestampMode, 'mixed');
+  assert.ok(output.regions.some(region => region.mode === 'coarse')); assert.ok(output.fallbackChunks.every(item => item.text));
+  assert.equal(checkpoints.at(-1).end, 140); assert.ok(output.inferenceWindows <= 13);
+  assert.equal(f.live(), 0); assert.equal(f.liveTensors(), 0);
+});
+test('DTW failure can retain text from a bounded plain recognition attempt', async () => {
+  const f = fixture(); let calls = 0;
+  f.pipeline.tokenizer.decode = () => 'Words recovered without timing.';
+  f.pipeline.model.generate = async args => { calls++; if (args.return_token_timestamps) throw new Error('DTW failed'); return { 0: { tolist: () => [1n, 2n] }, dispose() {} }; };
+  const output = await transcribeWindows(f.pipeline, new Float32Array(400), { allowPartial: true });
+  assert.equal(output.processedSeconds, 40); assert.equal(calls, 4);
+  assert.equal(output.regions.length, 2); assert.ok(output.fallbackChunks.every(item => item.text.includes('recovered')));
+  assert.equal(f.live(), 0);
+});
+test('resilient recovery never replaces recognized text with two empty windows', async () => {
+  const f = collapsedFixture(input => input.first === 800 && input.length === 300);
+  f.pipeline.tokenizer.decode = tokens => tokens.some(token => token === 1 || token === 2) ? 'Keep these recognized words.' : '';
+  const generate = f.pipeline.model.generate;
+  f.pipeline.model.generate = async args => args.inputs.first >= 800 && args.inputs.first <= 900 && args.inputs.length === 200
+    ? { sequences: { tolist: () => [[0n, 99n]] }, token_timestamps: { tolist: () => [[0, 0]] } }
+    : generate(args);
+  const output = await transcribeWindows(f.pipeline, Float32Array.from({ length: 1400 }, (_, i) => i), { allowPartial: true });
+  assert.ok(output.fallbackChunks.some(item => item.start === 80 && item.end === 110 && item.text.includes('Keep these')));
+  assert.equal(output.processedSeconds, 140);
+});
+test('persistent inference failure retains partial progress and never swallows explicit cancellation', async () => {
+  const f = fixture(); let calls = 0;
+  f.pipeline.model.generate = async () => { calls++; throw new Error('model unavailable'); };
+  const output = await transcribeWindows(f.pipeline, new Float32Array(1400), { allowPartial: true });
+  assert.equal(calls, 4); assert.equal(output.processedSeconds, 50); assert.equal(output.incomplete, true);
+  assert.ok(output.missingRanges.some(range => range[0] === 50 && range[1] === 140)); assert.equal(f.live(), 0);
+  f.pipeline.model.generate = async () => { throw new DOMException('Cancelled', 'AbortError'); };
+  await assert.rejects(transcribeWindows(f.pipeline, new Float32Array(300), { allowPartial: true }), { name: 'AbortError' }); assert.equal(f.live(), 0);
+});
+test('a failed cross-window merge is isolated while independently valid word regions survive', async () => {
+  const f = fixture(); f.pipeline.tokenizer.decode = () => 'Available words.';
+  f.pipeline.tokenizer._decode_asr = chunks => {
+    if (chunks.length > 1) throw new Error('Unstable overlap');
+    return ['Available words.', { chunks: [{ timestamp: [0, 1], text: 'Available words.' }] }];
+  };
+  const output = await transcribeWindows(f.pipeline, new Float32Array(400), { allowPartial: true });
+  assert.equal(output.timestampMode, 'mixed'); assert.equal(output.regions.length, 2);
+  assert.deepEqual(output.regions.map(region => region.chunks[0].timestamp), [[0, 1], [20, 21]]);
+  assert.deepEqual(output.boundaries, [[20, 30]]); assert.equal(output.processedSeconds, 40);
+});
