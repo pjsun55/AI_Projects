@@ -44,3 +44,45 @@ export function sentenceReadingParts(text) {
   if (pending) parts.push(pending);
   return parts;
 }
+
+// Reuse the saved original audio. A short media-time check complements
+// timeupdate (which can be several hundred milliseconds apart). Pauses,
+// buffering and speed changes always recalculate from the media clock.
+export function createAudioExcerpt({ audio, timers = globalThis, onChange = () => {} }) {
+  let range = null, timer, generation = 0;
+  const clear = () => { timers.clearTimeout(timer); timer = undefined; };
+  const check = () => {
+    clear();
+    if (!range) return;
+    if (audio.currentTime >= range.end) {
+      audio.pause();
+      if (audio.currentTime !== range.end) audio.currentTime = range.end;
+      onChange(false); return;
+    }
+    if (audio.currentTime < range.start - 0.1) { audio.pause(); onChange(false); return; }
+    const playing = !audio.paused; onChange(playing);
+    if (playing) timer = timers.setTimeout(check, Math.max(10, Math.min(100, (range.end - audio.currentTime) * 1000 / (audio.playbackRate || 1))));
+  };
+  for (const event of ['play', 'timeupdate', 'pause', 'playing', 'ratechange', 'seeked', 'ended']) audio.addEventListener(event, check);
+  return {
+    get active() { return !!range; },
+    get playing() { return !!range && !audio.paused; },
+    get returnTime() { return range?.returnTime; },
+    async start({ start, end }) {
+      if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start) throw new Error('這一段沒有可播放的時間範圍。');
+      const returnTime = range?.returnTime ?? audio.currentTime;
+      clear(); const current = ++generation;
+      range = { start, end, returnTime }; audio.currentTime = start;
+      try { await audio.play(); }
+      catch (error) { if (current === generation) { audio.pause(); onChange(false); throw error; } }
+      if (current === generation) check();
+    },
+    pause() { clear(); if (range) audio.pause(); onChange(false); },
+    reset({ restore = true } = {}) {
+      const previous = range; generation++; clear();
+      if (previous) { audio.pause(); if (restore) audio.currentTime = previous.returnTime; }
+      range = null;
+      onChange(false);
+    }
+  };
+}

@@ -171,6 +171,22 @@ try {
             return layoutState.bottom <= layoutState.sheetBottom + 1 && layoutState.captionHeight >= 40 && layoutState.scrolls && layoutState.equalFonts;
           }, { message: `${name} ${viewport.width} ${size}: long translation must scroll and preserve readable captions` }).toBe(true);
           await page.screenshot({ path: new URL(`${name}-${viewport.width}-${size}-translation.png`, output).pathname });
+          phase = `translation-original-audio-${size}`;
+          const excerptSource = await page.locator('#audio').evaluate(audio => audio.src), translationsBeforeExcerpt = mockedTranslations;
+          await page.locator('#translation-play').click();
+          await page.waitForFunction(() => !document.getElementById('audio').paused && !document.getElementById('translation-panel').hidden);
+          await expect(page.locator('#translation-play')).toHaveAttribute('aria-pressed', 'true');
+          // Let the native media clock cross the real sentence boundary. The
+          // excerpt must stop itself without a synthetic timeupdate event.
+          await page.locator('#audio').evaluate(audio => { audio.currentTime = 5.9; });
+          await page.waitForFunction(() => document.getElementById('audio').paused);
+          assert.equal(await page.locator('#audio').evaluate(audio => audio.currentTime), 6);
+          await expect(page.locator('#translation-panel')).toBeVisible();
+          await page.locator('#translation-play').click();
+          await page.waitForFunction(() => !document.getElementById('audio').paused);
+          await page.locator('#translation-play').click();
+          assert.equal(await page.locator('#audio').evaluate(audio => audio.paused && audio.src), excerptSource);
+          assert.equal(mockedTranslations, translationsBeforeExcerpt);
           phase = `translation-close-resume-${size}`;
           await page.locator('#translation-close').click();
           await page.waitForFunction(() => document.getElementById('translation-panel').hidden && !document.getElementById('audio').paused);

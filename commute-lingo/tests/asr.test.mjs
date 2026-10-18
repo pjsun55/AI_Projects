@@ -99,3 +99,71 @@ test('one short window has no artificial overlap and non-English transcription k
   assert.equal(f.calls[0].language, 'ja'); assert.equal(f.calls[0].task, 'transcribe');
   assert.equal(f.calls[0].num_frames, 550);
 });
+
+function collapsedFixture(fails, failRecovery = false) {
+  const f = fixture(), original = f.pipeline.processor, generated = [];
+  let liveTensors = 0;
+  const processor = async samples => {
+    const feature = await original(samples); feature.input_features.length = samples.length; return feature;
+  };
+  processor.feature_extractor = original.feature_extractor; f.pipeline.processor = processor;
+  Object.assign(f.pipeline.tokenizer, { all_special_ids: [0, 99], timestamp_begin: 100 });
+  f.pipeline.model.generate = async ({ inputs, num_frames }) => {
+    const broken = fails(inputs) || failRecovery && inputs.length < 300;
+    generated.push({ first: inputs.first, length: inputs.length, num_frames });
+    const end = inputs.length / 10 - 0.02;
+    const tensor = values => { liveTensors++; return { tolist: () => [values], dispose() { liveTensors--; } }; };
+    return { sequences: tensor([0n, 1n, 2n, 99n]), token_timestamps: tensor(broken ? [0, end, end, end] : [0, 0, 1, 2]) };
+  };
+  return { ...f, generated, liveTensors: () => liveTensors };
+}
+test('collapsed word window retries two shorter overlaps without losing audio or changing absolute offsets', async () => {
+  const f = collapsedFixture(input => input.first === 800 && input.length === 300), progress = [];
+  const result = await transcribeWindows(f.pipeline, Float32Array.from({ length: 1400 }, (_, i) => i), { progress: event => progress.push(event) });
+  assert.equal(result.processedSeconds, 140); assert.equal(result.repairedWindows, 1);
+  assert.equal(result.windowCount, 8); assert.equal(result.inferenceWindows, 9);
+  assert.deepEqual(f.generated.filter(item => item.first >= 800 && item.first <= 900).map(({ first, length }) => [first, length]), [[800, 300], [800, 200], [900, 200]]);
+  const outputs = f.merged[0].chunks;
+  let offset = 0;
+  const starts = outputs.map(chunk => { offset -= chunk.stride[1]; const start = offset; offset += chunk.stride[0] - chunk.stride[2]; return start; });
+  assert.deepEqual(starts, [0, 20, 40, 60, 80, 90, 100, 120]);
+  assert.deepEqual(outputs[4].stride, [20, 5, 5]); assert.deepEqual(outputs[5].stride, [20, 5, 5]);
+  assert.equal(progress.filter(event => event.recovering).length, 1);
+  assert.equal(progress.at(-1).window, 7); assert.equal(progress.at(-1).total, 7);
+  assert.equal(f.live(), 0); assert.equal(f.maximumLive(), 1); assert.equal(f.liveTensors(), 0);
+});
+test('a failed short-window recovery stops without partial success or retained tensors', async () => {
+  const f = collapsedFixture(input => input.first === 800 && input.length === 300, true), progress = [];
+  await assert.rejects(transcribeWindows(f.pipeline, Float32Array.from({ length: 1400 }, (_, i) => i), { progress: event => progress.push(event) }), /縮短音訊視窗後仍/);
+  assert.equal(f.generated.length, 6); assert.equal(f.merged.length, 0);
+  assert.ok(progress.every(event => event.processedSeconds < 140));
+  assert.equal(f.live(), 0); assert.equal(f.liveTensors(), 0);
+});
+test('empty recovery results cannot silently replace a collapsed speech window', async () => {
+  const f = collapsedFixture(input => input.first === 800 && input.length === 300);
+  const generate = f.pipeline.model.generate;
+  f.pipeline.model.generate = async args => args.inputs.length === 200
+    ? { sequences: { tolist: () => [[0n, 99n]] }, token_timestamps: { tolist: () => [[0, 0]] } }
+    : generate(args);
+  await assert.rejects(transcribeWindows(f.pipeline, Float32Array.from({ length: 1400 }, (_, i) => i)), /仍沒有有效字詞/);
+  assert.equal(f.merged.length, 0); assert.equal(f.live(), 0); assert.equal(f.liveTensors(), 0);
+});
+test('word-window recovery is capped at three intervals and never recursively retries', async () => {
+  const f = collapsedFixture(input => input.length === 300);
+  await assert.rejects(transcribeWindows(f.pipeline, Float32Array.from({ length: 1400 }, (_, i) => i)), /仍無法對齊/);
+  assert.equal(f.generated.length, 10); assert.equal(f.merged.length, 0);
+  assert.equal(f.live(), 0); assert.equal(f.liveTensors(), 0);
+});
+test('fractional final-window recovery preserves exact coverage and tiny invalid windows stop', async () => {
+  const f = collapsedFixture(input => input.first === 1200 && input.length === 253);
+  const result = await transcribeWindows(f.pipeline, Float32Array.from({ length: 1453 }, (_, i) => i));
+  let offset = 0;
+  const ranges = f.merged[0].chunks.map(chunk => { offset -= chunk.stride[1]; const start = offset; offset += chunk.stride[0] - chunk.stride[2]; return [start, start + chunk.stride[0]]; });
+  assert.ok(Math.abs(ranges.at(-2)[0] - 120) < 1e-8);
+  assert.ok(Math.abs(ranges.at(-1)[0] - 128.4) < 1e-8);
+  assert.ok(Math.abs(ranges.at(-1)[1] - 145.3) < 1e-8);
+  assert.equal(result.processedSeconds, 145.3); assert.equal(result.repairedWindows, 1);
+  const tiny = collapsedFixture(() => true);
+  await assert.rejects(transcribeWindows(tiny.pipeline, new Float32Array(30)), /仍無法對齊/);
+  assert.equal(tiny.generated.length, 1); assert.equal(tiny.live(), 0);
+});

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createSubtitleFollow, subtitleScrollTop } from '../public/subtitles.mjs';
+import { createSubtitleFollow, subtitleScrollTop, createAudioExcerpt } from '../public/subtitles.mjs';
 
 function fixture() {
   let now = 0, playing = true, calls = 0, id = 0;
@@ -38,4 +38,44 @@ test('subtitle scroll uses viewport rectangles, keeps current cue near top, and 
   assert.equal(subtitleScrollTop({ ...base, containerTop: 100, cueTop: 501 }), 540); // Outer player scrolled.
   assert.equal(subtitleScrollTop({ ...base, cueTop: 0 }), 0);
   assert.equal(subtitleScrollTop({ ...base, cueTop: 4000 }), 1760);
+});
+
+function excerptFixture() {
+  const audio = new EventTarget(), pending = new Map(); let id = 0;
+  Object.assign(audio, { currentTime: 17, playbackRate: 1, paused: true });
+  audio.play = async () => { audio.paused = false; audio.dispatchEvent(new Event('play')); audio.dispatchEvent(new Event('playing')); };
+  audio.pause = () => { if (!audio.paused) { audio.paused = true; audio.dispatchEvent(new Event('pause')); } };
+  const excerpt = createAudioExcerpt({ audio, timers: { setTimeout(fn, ms) { pending.set(++id, { fn, ms }); return id; }, clearTimeout(key) { pending.delete(key); } } });
+  return { audio, excerpt, pending, tick() { const tasks = [...pending.values()]; pending.clear(); for (const task of tasks) task.fn(); } };
+}
+test('original-audio excerpt stops at its end, replays, and restores the original listening position', async () => {
+  const f = excerptFixture(); await f.excerpt.start({ start: 5, end: 8 });
+  assert.equal(f.audio.currentTime, 5); assert.equal(f.excerpt.playing, true);
+  f.audio.currentTime = 8.12; f.tick();
+  assert.equal(f.audio.paused, true); assert.equal(f.audio.currentTime, 8); assert.equal(f.pending.size, 0);
+  await f.excerpt.start({ start: 5, end: 8 }); assert.equal(f.audio.currentTime, 5);
+  f.excerpt.reset(); assert.equal(f.audio.currentTime, 17); assert.equal(f.audio.paused, true); assert.equal(f.excerpt.active, false);
+  f.audio.currentTime = 40; f.tick(); assert.equal(f.audio.currentTime, 40);
+});
+test('excerpt checks the media clock through buffering, speed changes, manual stop and file ending', async () => {
+  const f = excerptFixture(); await f.excerpt.start({ start: 5, end: 8 });
+  f.tick(); assert.equal(f.audio.paused, false); // A stalled clock never completes early.
+  f.audio.currentTime = 7.9; f.audio.playbackRate = 2; f.audio.dispatchEvent(new Event('ratechange'));
+  assert.ok([...f.pending.values()][0].ms <= 51);
+  f.excerpt.pause(); assert.equal(f.pending.size, 0); assert.equal(f.excerpt.active, true);
+  await f.excerpt.start({ start: 5, end: 8 }); f.audio.currentTime = 8; f.audio.dispatchEvent(new Event('ended'));
+  assert.equal(f.excerpt.active, true); assert.equal(f.audio.paused, true); assert.equal(f.pending.size, 0);
+  f.excerpt.reset({ restore: false }); assert.equal(f.audio.currentTime, 8);
+  await assert.rejects(f.excerpt.start({ start: 8, end: 5 }), /時間範圍/);
+  await assert.rejects(f.excerpt.start({ start: 0, end: Infinity }), /時間範圍/);
+});
+test('closing an excerpt cancels queued checks and failed playback remains retryable', async () => {
+  const f = excerptFixture(); await f.excerpt.start({ start: 5, end: 8 });
+  const queued = [...f.pending.values()][0].fn;
+  f.excerpt.reset(); f.audio.currentTime = 30; await f.audio.play(); queued();
+  assert.equal(f.audio.paused, false); assert.equal(f.audio.currentTime, 30);
+  f.audio.pause(); f.audio.play = async () => { throw new Error('autoplay refused'); };
+  await assert.rejects(f.excerpt.start({ start: 5, end: 8 }), /autoplay refused/);
+  assert.equal(f.audio.paused, true); assert.equal(f.pending.size, 0);
+  f.excerpt.reset(); assert.equal(f.audio.currentTime, 30);
 });

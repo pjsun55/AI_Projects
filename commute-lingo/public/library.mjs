@@ -1,4 +1,4 @@
-import { normalizeSegments, groupSentences } from './core.mjs?v=0.2.11';
+import { normalizeSegments, groupSentences } from './core.mjs?v=0.2.12';
 
 export const LIBRARY_KEY = 'library-v2';
 export const MAX_AUDIO_MINUTES = 60;

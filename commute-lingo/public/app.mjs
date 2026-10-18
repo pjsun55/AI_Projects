@@ -1,19 +1,23 @@
-import { formatTime, findActive, transcriptCoverage, toSRT, sentenceTexts } from './core.mjs?v=0.2.11';
-import * as storage from './storage.mjs?v=0.2.11';
-import { createTranslator } from './translation.mjs?v=0.2.11';
-import { DEFAULT_SETTINGS, LIBRARY_KEY, emptyLibrary, validateSettings, title, tracksIn, addAlbum, removeAlbum, removeTrack, rename, placeTrack, changeSettings, libraryBytes, playbackQueue, sentenceTarget, sentencesFor, legacyLibrary, newId } from './library.mjs?v=0.2.11';
-import { importPodcast, importAudioFile, transcribeSavedAudio } from './source.mjs?v=0.2.11';
-import { icon, fillIcons } from './icons.mjs?v=0.2.11';
-import { longPress, isMobileLandscape } from './gestures.mjs?v=0.2.11';
-import { zipFiles } from './backup.mjs?v=0.2.11';
-import { createSubtitleFollow, subtitleScrollTop, sentenceReadingParts } from './subtitles.mjs?v=0.2.11';
-import { createUpdater, reloadVersion } from './updates.mjs?v=0.2.11';
-import { holdScreenAwake } from './wake-lock.mjs?v=0.2.11';
+import { formatTime, findActive, transcriptCoverage, toSRT, sentenceTexts } from './core.mjs?v=0.2.12';
+import * as storage from './storage.mjs?v=0.2.12';
+import { createTranslator } from './translation.mjs?v=0.2.12';
+import { DEFAULT_SETTINGS, LIBRARY_KEY, emptyLibrary, validateSettings, title, tracksIn, addAlbum, removeAlbum, removeTrack, rename, placeTrack, changeSettings, libraryBytes, playbackQueue, sentenceTarget, sentencesFor, legacyLibrary, newId } from './library.mjs?v=0.2.12';
+import { importPodcast, importAudioFile, transcribeSavedAudio } from './source.mjs?v=0.2.12';
+import { icon, fillIcons } from './icons.mjs?v=0.2.12';
+import { longPress, isMobileLandscape } from './gestures.mjs?v=0.2.12';
+import { zipFiles } from './backup.mjs?v=0.2.12';
+import { createSubtitleFollow, subtitleScrollTop, sentenceReadingParts, createAudioExcerpt } from './subtitles.mjs?v=0.2.12';
+import { createUpdater, reloadVersion } from './updates.mjs?v=0.2.12';
+import { holdScreenAwake } from './wake-lock.mjs?v=0.2.12';
 
 const $ = id => document.getElementById(id);
 const audio = $('audio');
 const state = { library: emptyLibrary(), ready: false, view: 'playlist', album: null, current: null, queue: [], urls: new Map(), sentences: [], active: -1, seeking: false, playerToken: 0, lastProgressSave: 0, translation: null, pending: null, file: null, job: null, epoch: 0, writing: false, clearing: false, gestureCleanups: [], legacy: null, backup: null, updating: false, settingsDirty: false, loadingAudio: 0 };
 const subtitleFollow = createSubtitleFollow({ onFollow: () => highlight(true), canResume: () => !audio.paused && !document.hidden && $('player').open && !$('subtitles-panel').hidden && !state.translation });
+const translationAudio = createAudioExcerpt({ audio, onChange: playing => {
+  $('translation-play').textContent = playing ? '停止原音' : '播放這段原音';
+  $('translation-play').setAttribute('aria-pressed', String(playing));
+} });
 let messageTimer;
 const clock = value => formatTime(Number.isFinite(value) ? value : 0).replace(/^00:/, '');
 const bytes = value => value >= 1024 ** 3 ? `${(value / 1024 ** 3).toFixed(2)} GB` : `${(value / 1024 ** 2).toFixed(1)} MB`;
@@ -21,7 +25,7 @@ const currentTrack = () => state.library.tracks.find(track => track.id === state
 const albumOf = track => state.library.albums.find(album => album.id === track?.albumId);
 const safe = action => (...args) => { try { return Promise.resolve(action(...args)).catch(error => notify(error.message, true)); } catch (error) { notify(error.message, true); } };
 const updater = createUpdater({
-  serviceWorker: navigator.serviceWorker, version: '0.2.11',
+  serviceWorker: navigator.serviceWorker, version: '0.2.12',
   isAuto: () => state.library.settings.autoUpdate,
   visible: () => !document.hidden,
   canUpdate: () => state.ready && audio.paused && !state.loadingAudio && !state.job && !state.pending && !state.writing && !state.clearing && !state.backup && !state.translation && !state.settingsDirty && !$('player').open && !$('action-dialog').open && !$('source-url').value.trim() && !state.file && !document.activeElement?.matches?.('input,select,textarea'),
@@ -161,7 +165,7 @@ function applyAppearance(settings) {
   document.documentElement.style.setProperty('--subtitle-size', { normal: '18.4px', large: '22.4px', xlarge: '27.2px' }[settings.subtitleSize]);
   $('brand-icon').src = `./icon-${settings.icon}.svg`; $('favicon').href = `./icon-${settings.icon}.svg`;
   $('touch-icon').href = `./icon-${settings.icon}-192.png`;
-  $('manifest').href = `./manifest-${settings.icon}.webmanifest?v=0.2.11`;
+  $('manifest').href = `./manifest-${settings.icon}.webmanifest?v=0.2.12`;
 }
 async function refreshStorage() {
   const total = libraryBytes(state.library);
@@ -275,8 +279,9 @@ function keepConversionAwake(controller) {
     element.hidden = status === 'idle'; element.textContent = messages[status] || '';
   } });
 }
-function setImportProgress({ stage, message, error = false }) {
+function setImportProgress({ stage = state.importStage || 'source', message, error = false }) {
   const stages = ['source', 'download', 'decode', 'transcribe', 'save'], index = stages.indexOf(stage);
+  state.importStage = stage;
   $('import-progress').hidden = false; $('import-progress').classList.toggle('error', error);
   $('import-stage').textContent = error ? '這次匯入已停止' : stage === 'save' ? '字幕準備好了' : '正在準備你的聆聽';
   $('import-message').textContent = message; $('import-spinner').hidden = error || !state.job;
@@ -286,7 +291,7 @@ function setImportProgress({ stage, message, error = false }) {
 }
 function cancelImport(message = '匯入已停止，原有收藏保持完整。') {
   state.epoch++; state.job?.abort(); state.job = null;
-  setImportProgress({ stage: 'source', message, error: true });
+  setImportProgress({ message, error: true });
 }
 async function startImport(event, type = 'podcast') {
   event.preventDefault();
@@ -309,7 +314,7 @@ async function startImport(event, type = 'podcast') {
     setImportProgress({ stage: 'save', message: `「${result.track.title}」已完成 ${clock(result.track.duration)} 音訊與原文字幕，請選擇要加入的專輯。尚未占用收藏名額。${result.track.metrics?.timestampWarnings?.length ? ' 部分原文缺少精確時間，已保留文字並標示較粗時間範圍，請抽查對照音訊。' : ''}` });
     await finishImport();
   } catch (error) {
-    if (epoch === state.epoch) { state.job = null; setImportProgress({ stage: 'source', message: error.name === 'AbortError' ? type === 'file' ? '音檔匯入已停止，原有收藏保持完整。' : '來源讀取已取消或超過 3 分鐘；請確認網路後重試。' : error.message, error: true }); }
+    if (epoch === state.epoch) { state.job = null; setImportProgress({ message: error.name === 'AbortError' ? type === 'podcast' && transferTimer ? '來源讀取已取消或超過 3 分鐘；請確認網路後重試。' : '音檔匯入已停止，原有收藏保持完整。' : error.message, error: true }); }
   } finally { clearTimeout(transferTimer); await awake.release(); }
 }
 async function regenerateTranscript(id) {
@@ -340,7 +345,7 @@ async function regenerateTranscript(id) {
     if (state.current === id) openPlayer();
     notify('已使用保存的音訊重新產生字幕，沒有重新下載音檔。');
   } catch (error) {
-    if (epoch === state.epoch) { state.job = null; setImportProgress({ stage: 'decode', message: `${error.name === 'AbortError' ? '字幕更新已停止。' : error.message} 原有音訊與字幕已保留。`, error: true }); }
+    if (epoch === state.epoch) { state.job = null; setImportProgress({ message: `${error.name === 'AbortError' ? '字幕更新已停止。' : error.message} 原有音訊與字幕已保留。`, error: true }); }
   } finally { await awake.release(); }
 }
 async function finishImport() {
@@ -382,6 +387,7 @@ async function finishImport() {
 }
 
 function closeTranslation() {
+  translationAudio.reset(); state.translationCue = null;
   state.translation?.abort(); state.translation = null; $('translation-panel').hidden = true;
   document.querySelectorAll('.sentence-text.translating').forEach(sentence => sentence.classList.remove('translating'));
 }
@@ -390,6 +396,8 @@ async function translateSentence(index, selectedText) {
   const text = selectedText || cue.text;
   audio.pause(); closeTranslation(); subtitleFollow.suspend();
   const controller = new AbortController(); state.translation = controller;
+  state.translationCue = { trackId: track.id, start: cue.start, end: Math.min(cue.end, track.duration) };
+  $('translation-play').disabled = !(Number.isFinite(cue.start) && Number.isFinite(state.translationCue.end) && state.translationCue.end > cue.start);
   $('translation-panel').hidden = false; $('translation-original').textContent = text;
   $('translation-text').textContent = ''; $('translation-status').textContent = '正在取得這一句的中文翻譯…';
   [...($('subtitle-list').children[index]?.querySelectorAll('.sentence-text') || [])].find(sentence => sentence.textContent === text)?.classList.add('translating');
@@ -413,7 +421,7 @@ function renderSubtitles() {
       for (const part of sentenceReadingParts(text)) sentence.append(node('span', 'sentence-phrase', part));
       sentence.setAttribute('aria-label', `點一下播放此段；長按或按 Enter 翻譯：${text}`);
       state.gestureCleanups.push(longPress(sentence, () => translateSentence(index, text)));
-      sentence.onclick = safe(event => { if (event.defaultPrevented) return; audio.currentTime = cue.start; closeTranslation(); updateTimeline(); play(); saveProgress(); });
+      sentence.onclick = safe(event => { if (!event.defaultPrevented) seekPlayback(cue.start, true); });
       row.append(sentence);
     }
     if (cue.incomplete) row.append(node('small', '', '句尾可能不完整，請核對後續聲音。'));
@@ -448,7 +456,7 @@ function setSubtitlesVisible(show) {
 function resetSubtitles() { setSubtitlesVisible(false); }
 function openPlayer() { if (!currentTrack()) return; if (!$('player').open) openDialog($('player')); subtitleFollow.resume(); }
 function releasePlayer() {
-  state.playerToken++; audio.pause(); audio.removeAttribute('src'); audio.load(); closeTranslation();
+  state.playerToken++; closeTranslation(); audio.pause(); audio.removeAttribute('src'); audio.load();
   state.current = null; state.queue = []; state.sentences = []; resetSubtitles();
   if ($('player').open) closeDialog($('player'));
   for (const url of state.urls.values()) URL.revokeObjectURL(url); state.urls.clear();
@@ -499,11 +507,16 @@ function play() {
   audio.play().catch(() => { $('player-feedback').textContent = '音訊已就緒，請再按一下播放。'; notify('音訊已就緒，請再按一下播放。'); });
 }
 function togglePlay() { if (audio.paused) play(); else audio.pause(); }
+function seekPlayback(target, resume = !audio.paused) {
+  closeTranslation(); audio.currentTime = target; updateTimeline(); subtitleFollow.resume();
+  if (resume && audio.paused) play();
+  saveProgress();
+}
 function seekSentence(direction) {
   if (state.updating) return;
   const target = sentenceTarget(state.sentences, audio.currentTime || 0, direction);
   if (target === null) { $('player-feedback').textContent = '已到最後一句。'; return; }
-  audio.currentTime = target; closeTranslation(); updateTimeline(); subtitleFollow.resume(); saveProgress();
+  seekPlayback(target);
 }
 function updatePlayer() {
   const track = currentTrack(); $('mini-player').hidden = !track; $('app').classList.toggle('has-player', !!track);
@@ -536,7 +549,7 @@ function updateTimeline() {
 }
 async function saveProgress({ strict = false } = {}) {
   const track = currentTrack(); if (!track || state.clearing || !state.ready) return;
-  const position = Math.min(track.duration, audio.currentTime || 0);
+  const position = Math.min(track.duration, translationAudio.returnTime ?? (audio.currentTime || 0));
   try {
     await storage.write(`progress:${track.id}`, { position });
     if (state.clearing || state.current !== track.id) return;
@@ -547,7 +560,7 @@ function updateMediaSession() {
   if (!('mediaSession' in navigator)) return;
   const track = currentTrack(); if (!track) return;
   if (globalThis.MediaMetadata) navigator.mediaSession.metadata = new MediaMetadata({ title: track.title, artist: track.show || 'CommuteLingo', album: albumOf(track)?.title || '', artwork: [{ src: new URL(`./icon-${state.library.settings.icon}-512.png`, location.href).href, sizes: '512x512', type: 'image/png' }] });
-  const actions = { play, pause: () => audio.pause(), stop: () => { audio.pause(); audio.currentTime = 0; saveProgress(); }, seekbackward: () => seekSentence(-1), seekforward: () => seekSentence(1), previoustrack: () => seekSentence(-1), nexttrack: () => seekSentence(1), seekto: event => { if (Number.isFinite(event.seekTime)) { audio.currentTime = Math.min(track.duration, Math.max(0, event.seekTime)); updateTimeline(); } } };
+  const actions = { play, pause: () => audio.pause(), stop: () => { closeTranslation(); audio.pause(); audio.currentTime = 0; saveProgress(); }, seekbackward: () => seekSentence(-1), seekforward: () => seekSentence(1), previoustrack: () => seekSentence(-1), nexttrack: () => seekSentence(1), seekto: event => { if (Number.isFinite(event.seekTime)) seekPlayback(Math.min(track.duration, Math.max(0, event.seekTime))); } };
   for (const [action, handler] of Object.entries(actions)) { try { navigator.mediaSession.setActionHandler(action, (...args) => { if (!state.updating) handler(...args); }); } catch { /* Unsupported action on this OS. */ } }
 }
 function download(blob, name) {
@@ -645,10 +658,10 @@ $('mini-open').onclick = openPlayer; $('mini-play').onclick = togglePlay; $('pla
 $('mini-next').onclick = () => seekSentence(1); $('previous-sentence').onclick = () => seekSentence(-1); $('next-sentence').onclick = () => seekSentence(1);
 $('player-close').onclick = () => closeDialog($('player')); $('player').addEventListener('close', resetSubtitles);
 $('player-menu').onclick = safe(() => currentTrack() && trackMenu(currentTrack()));
-$('player-stop').onclick = () => { audio.pause(); audio.currentTime = 0; closeTranslation(); updateTimeline(); saveProgress(); };
+$('player-stop').onclick = () => { closeTranslation(); audio.pause(); audio.currentTime = 0; updateTimeline(); saveProgress(); };
 $('playback-speed').onchange = () => { audio.playbackRate = +$('playback-speed').value; updateTimeline(); saveProgress(); };
 $('playback-range').oninput = event => { state.seeking = true; $('elapsed').textContent = clock(+event.target.value); };
-$('playback-range').onchange = event => { audio.currentTime = +event.target.value; state.seeking = false; closeTranslation(); updateTimeline(); subtitleFollow.resume(); saveProgress(); };
+$('playback-range').onchange = event => { state.seeking = false; seekPlayback(+event.target.value); };
 $('toggle-subtitles').onclick = () => setSubtitlesVisible($('subtitles-panel').hidden);
 $('follow-subtitles').onclick = () => subtitleFollow.resume();
 $('subtitle-list').addEventListener('pointerdown', event => { if (event.pointerType !== 'touch') subtitleFollow.hold('pointer'); }, { passive: true });
@@ -659,21 +672,30 @@ $('subtitle-list').addEventListener('wheel', () => subtitleFollow.browse(), { pa
 $('subtitle-list').addEventListener('scroll', () => subtitleFollow.scrolled(), { passive: true });
 $('subtitle-list').addEventListener('keydown', event => { if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End'].includes(event.key)) subtitleFollow.browse(); });
 $('translation-close').onclick = () => { const shown = !$('translation-panel').hidden; closeTranslation(); if (shown) play(); };
+$('translation-play').onclick = safe(async () => {
+  const cue = state.translationCue, controller = state.translation;
+  if (!controller || !cue || cue.trackId !== state.current || state.updating) return;
+  if (translationAudio.playing) { translationAudio.pause(); return; }
+  try { await translationAudio.start(cue); }
+  catch { if (state.translation === controller) $('translation-status').textContent = '原音無法播放，請再按一次，或重新選擇音訊。'; }
+  updateTimeline();
+});
 $('regenerate-subtitles').onclick = safe(() => currentTrack() && regenerateTranscript(state.current));
-audio.addEventListener('play', () => { closeTranslation(); subtitleFollow.resume(); updatePlayer(); if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'; });
+audio.addEventListener('play', () => { if (!translationAudio.active) { closeTranslation(); subtitleFollow.resume(); } updatePlayer(); if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'; });
 audio.addEventListener('pause', () => { updatePlayer(); saveProgress(); if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'; });
 audio.addEventListener('timeupdate', () => { updateTimeline(); if (performance.now() - state.lastProgressSave > 8000) { state.lastProgressSave = performance.now(); saveProgress(); } });
 audio.addEventListener('seeked', () => { updateTimeline(); if (!state.translation) subtitleFollow.resume(); });
 audio.addEventListener('error', () => { if (state.current) { $('player-feedback').textContent = '音訊播放失敗，請重新選擇音訊或匯入來源。'; notify('音訊播放失敗，請重新選擇音訊或匯入來源。', true); } });
 audio.addEventListener('ended', safe(async () => {
+  if (translationAudio.active) return;
   const index = state.queue.indexOf(state.current), next = state.queue[index + 1];
   saveProgress(); if (next) await selectTrack(next, { queue: state.queue, autoplay: true, position: 0 }); else { updatePlayer(); $('player-feedback').textContent = '這段旅程已聽完。'; }
 }));
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) { if (state.job) cancelImport('來源匯入因離開前景而停止，請回來後重新開始。原有收藏已保留。'); saveProgress(); }
+  if (document.hidden) { translationAudio.pause(); if (state.job) cancelImport('來源匯入因離開前景而停止，請回來後重新開始。原有收藏已保留。'); saveProgress(); }
   else { updateTimeline(); if (!audio.paused) subtitleFollow.resume(); orientation(); if (state.library.settings.autoUpdate) void updater.check(); }
 });
-window.addEventListener('pagehide', () => { if (state.job) cancelImport(); state.translation?.abort(); state.backup?.abort(); saveProgress(); });
+window.addEventListener('pagehide', () => { translationAudio.pause(); if (state.job) cancelImport(); state.translation?.abort(); state.backup?.abort(); saveProgress(); });
 window.addEventListener('orientationchange', orientation); screen.orientation?.addEventListener('change', orientation); window.addEventListener('resize', orientation);
 async function offlineStatus() {
   if (!('serviceWorker' in navigator)) { void updater.start(); $('offline-status').textContent = '此瀏覽器未提供離線頁面支援。'; return; }
@@ -683,7 +705,7 @@ async function offlineStatus() {
     const check = () => {
       const channel = new MessageChannel();
       const timer = setTimeout(() => { channel.port1.close(); $('offline-status').textContent = '新版可在線使用；請在保存後關閉舊分頁再開啟，以更新離線頁面。'; }, 2000);
-      channel.port1.onmessage = ({ data }) => { clearTimeout(timer); channel.port1.close(); $('offline-status').textContent = data.version === '0.2.11' && data.ready ? '頁面已可離線使用；已收藏的音訊與快取翻譯可離線讀取，新匯入與新翻譯需要連線。' : '新版可在線使用，離線頁面尚待更新。'; };
+      channel.port1.onmessage = ({ data }) => { clearTimeout(timer); channel.port1.close(); $('offline-status').textContent = data.version === '0.2.12' && data.ready ? '頁面已可離線使用；已收藏的音訊與快取翻譯可離線讀取，新匯入與新翻譯需要連線。' : '新版可在線使用，離線頁面尚待更新。'; };
       registration.active?.postMessage({ type: 'CACHE_VERSION' }, [channel.port2]);
     };
     navigator.serviceWorker.addEventListener('controllerchange', check); check();

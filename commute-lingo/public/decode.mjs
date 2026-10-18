@@ -9,7 +9,7 @@ export function isMP3(file, header) {
   return header[0] === 0xff && (header[1] & 0xe0) === 0xe0 && (header[1] & 6) === 2;
 }
 
-export function decodeInWorker(bytes, { duration, signal, progress = () => {}, createWorker = () => new Worker(new URL('./decoder.mjs?v=0.2.11', import.meta.url), { type: 'module' }) } = {}) {
+export function decodeInWorker(bytes, { duration, signal, progress = () => {}, createWorker = () => new Worker(new URL('./decoder.mjs?v=0.2.12', import.meta.url), { type: 'module' }) } = {}) {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) { reject(new DOMException('已取消', 'AbortError')); return; }
     const worker = createWorker(); let settled = false;

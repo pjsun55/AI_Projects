@@ -14,20 +14,20 @@ export async function transcribeWindows(pipeline, samples, { language = 'en', pr
   if (!samples?.length || !Number.isFinite(rate) || jump <= 0 || !Number.isFinite(timePrecision) || timePrecision <= 0 || typeof pipeline.tokenizer._decode_asr !== 'function') throw new Error('語音模型或音訊長度不正確。');
   const chunks = [];
   const total = Math.max(1, Math.ceil((samples.length - window) / jump) + 1);
-  let processedSeconds = 0;
-  for (let offset = 0; offset < samples.length; offset += jump) {
-    const end = Math.min(offset + window, samples.length);
-    const last = end === samples.length;
+  let processedSeconds = 0, completed = 0, repairedWindows = 0, inferenceWindows = 0;
+  const special = new Set(pipeline.tokenizer.all_special_ids || []);
+  const hasTextVocabulary = Number.isFinite(pipeline.tokenizer.timestamp_begin);
+  const generateWindow = async (offset, end) => {
     let feature, generated;
     try {
       feature = await pipeline.processor(samples.subarray(offset, end));
+      inferenceWindows++;
       generated = await pipeline.model.generate({
         inputs: feature.input_features,
         return_timestamps: !wordTiming,
         ...(wordTiming ? { return_token_timestamps: true } : {}),
         // v3.8.1's DTW extractor slices encoder attention frames directly.
-        // Their time step is 20 ms, versus 10 ms for input mel frames. Cropping
-        // here prevents short final windows aligning words to padded silence.
+        // Their time step is 20 ms, versus 10 ms for input mel frames.
         num_frames: wordTiming ? Math.min(pipeline.model.config.max_source_positions, Math.ceil((end - offset) / rate / timePrecision)) : Math.floor((end - offset) / config.hop_length),
         ...(language !== 'en' ? { language, task: 'transcribe' } : {})
       });
@@ -35,27 +35,57 @@ export async function transcribeWindows(pipeline, samples, { language = 'en', pr
       if (!Array.isArray(tokens) || !tokens.length) throw new Error('某段音訊沒有回傳有效轉錄結果。');
       const times = wordTiming ? generated.token_timestamps?.tolist()?.[0] : undefined;
       if (wordTiming && (!Array.isArray(times) || times.length !== tokens.length || times.some((time, i) => !Number.isFinite(time) || time < 0 || time > (end - offset) / rate + 0.1 || i > 0 && time < times[i - 1]))) throw new Error('模型未提供有效的逐字時間，已停止，原有字幕保持不變。');
-      chunks.push({ tokens, ...(wordTiming ? { token_timestamps: times.map(time => Math.round(time * 100) / 100) } : {}), stride: [(end - offset) / rate, offset === 0 ? 0 : 5, last ? 0 : 5], is_last: last });
+      const tokenTimes = wordTiming ? times.map(time => Math.round(time * 100) / 100) : undefined;
+      const textPositions = wordTiming && hasTextVocabulary ? tokens.flatMap((token, i) => !special.has(Number(token)) && Number(token) < pipeline.tokenizer.timestamp_begin ? [i] : []) : [];
+      // A whole window with only zero-length text anchors is not a usable
+      // transcription. Do not append it, drop the audio, or invent durations.
+      const collapsed = textPositions.length > 0 && textPositions.every(i => tokenTimes[i + 1] === tokenTimes[i]);
+      return { tokens, ...(wordTiming ? { token_timestamps: tokenTimes } : {}), offset, end, collapsed, textCount: textPositions.length };
     } finally {
-      // Word timing returns a dictionary of attention tensors, rather than a
-      // single tensor. Release every window before processing the next one.
       try { releaseTensors(generated); }
       finally { releaseTensors(feature?.input_features); }
     }
+  };
+  for (let offset = 0; offset < samples.length; offset += jump) {
+    const end = Math.min(offset + window, samples.length), last = end === samples.length;
+    const chunk = await generateWindow(offset, end);
+    if (chunk.collapsed) {
+      if (repairedWindows >= 3 || end - offset < 4 * rate) throw new Error('某段音訊的字詞時間仍無法對齊，請切換模型後重試；原有收藏保持不變。');
+      repairedWindows++;
+      progress({ window: completed + 1, total, processedSeconds, audioSeconds: samples.length / rate, recovering: true });
+      // Two shorter overlapping windows cover the ENTIRE original interval.
+      // Each gets one attempt; no recursive or unbounded model retries.
+      const length = Math.ceil((end - offset) * 2 / 3);
+      const replacements = [];
+      for (const [start, stop] of [[offset, offset + length], [end - length, end]]) {
+        const replacement = await generateWindow(start, stop);
+        if (replacement.collapsed) throw new Error('縮短音訊視窗後仍無法取得有效字詞時間，請切換模型後重試；原有收藏保持不變。');
+        replacements.push(replacement);
+      }
+      if (!replacements.some(item => item.textCount > 0)) throw new Error('重新對齊後仍沒有有效字詞，已停止，原有收藏保持不變。');
+      chunks.push(...replacements);
+    } else chunks.push(chunk);
     processedSeconds = end / rate;
-    progress({ window: chunks.length, total, processedSeconds, audioSeconds: samples.length / rate });
+    progress({ window: ++completed, total, processedSeconds, audioSeconds: samples.length / rate });
     if (last) break;
   }
   if (processedSeconds * rate < samples.length - 1) throw new Error('音訊仍有未處理的部分，不能標示轉錄完成。');
+  // Neighboring windows own half their physical overlap. This keeps absolute
+  // offsets correct for ordinary 30 s windows and shorter recovery windows.
+  const outputs = chunks.map((chunk, i) => ({
+    tokens: chunk.tokens, ...(wordTiming ? { token_timestamps: chunk.token_timestamps } : {}),
+    stride: [(chunk.end - chunk.offset) / rate, i ? (chunks[i - 1].end - chunk.offset) / rate / 2 : 0, i + 1 < chunks.length ? (chunk.end - chunks[i + 1].offset) / rate / 2 : 0],
+    is_last: i === chunks.length - 1
+  }));
   // Use numeric absolute times when resolving overlap. v3.8.1's default
   // merger compares [start,end] arrays, which orders them as strings.
   const tokenizer = wordTiming ? Object.assign(Object.create(pipeline.tokenizer), { findLongestCommonSequence: mergeTimedTokens }) : pipeline.tokenizer;
-  const [text, optional] = tokenizer._decode_asr(chunks, {
+  const [text, optional] = tokenizer._decode_asr(outputs, {
     time_precision: timePrecision,
     return_timestamps: wordTiming ? 'word' : true,
     force_full_sequences: false
   });
-  return { text, ...optional, timestampMode, processedSeconds, audioSeconds: samples.length / rate, windowCount: chunks.length };
+  return { text, ...optional, timestampMode, processedSeconds, audioSeconds: samples.length / rate, windowCount: chunks.length, repairedWindows, inferenceWindows };
 }
 
 export function mergeTimedTokens(sequences, timings) {
