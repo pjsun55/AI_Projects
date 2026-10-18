@@ -28,7 +28,7 @@ try {
           ? await engine.launchPersistentContext(await mkdtemp(new URL('../.tmp/webkit-profile-', import.meta.url).pathname), options)
           : await browser.newContext(options);
         const page = await context.newPage(), errors = [];
-        let phase = 'fixture-storage', offlineState, layoutState, mockedTranslations = 0;
+        let phase = 'fixture-storage', offlineState, layoutState, sourceControlState, mockedTranslations = 0;
         try {
         page.on('pageerror', error => errors.push(error.message));
         await page.addInitScript(() => {
@@ -71,12 +71,18 @@ try {
         await page.reload();
         await expect(page.locator('#setting-minutes')).toHaveValue('60');
         await page.locator('[data-tab="import"]').click();
+        phase = 'source-controls';
         const oldURL = 'https://podcasts.apple.com/example/id123?i=456&previous='.padEnd(300, 'x');
         await page.locator('#source-url').fill(oldURL);
         await expect(page.locator('#clear-source-url')).toBeEnabled();
-        assert.ok(await page.locator('#clear-source-url').evaluate(element => {
-          const rect = element.getBoundingClientRect(); return rect.width >= 44 && rect.height >= 44 && rect.right <= innerWidth;
-        }), 'Source clear control must remain reachable beside a long URL');
+        await expect.poll(async () => {
+          sourceControlState = await page.locator('#clear-source-url').evaluate(element => {
+            const rect = element.getBoundingClientRect(), style = getComputedStyle(element);
+            return { width: rect.width, height: rect.height, left: rect.left, right: rect.right, viewport: innerWidth, documentWidth: document.documentElement.scrollWidth, transform: style.transform, scale: visualViewport?.scale ?? 1 };
+          });
+          return sourceControlState.width >= 44 && sourceControlState.height >= 44 && sourceControlState.left >= 0 && sourceControlState.right <= sourceControlState.viewport;
+        }, { message: 'Source clear control must remain reachable beside a long URL' }).toBe(true);
+        console.log(JSON.stringify({ browser: name, viewport, sourceControlState }));
         await page.locator('#clear-source-url').click();
         await expect(page.locator('#source-url')).toHaveValue('');
         await expect(page.locator('#source-url')).toBeFocused();
@@ -233,7 +239,7 @@ try {
               error: audio.error?.code, translationHidden: document.getElementById('translation-panel').hidden,
               feedback: document.getElementById('player-feedback').textContent, events: window.__mediaEvents };
           }).catch(() => undefined);
-          failures.push(new Error(JSON.stringify({ browser: name, viewport, phase, mockedTranslations, offlineState, layoutState, mediaState, message: error.message }), { cause: error }));
+          failures.push(new Error(JSON.stringify({ browser: name, viewport, phase, mockedTranslations, offlineState, layoutState, sourceControlState, mediaState, message: error.message }), { cause: error }));
         } finally { await context.close(); }
       }
     } finally { await browser?.close(); }
