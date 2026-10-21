@@ -141,7 +141,8 @@ test('words sharing a DTW instant retain their text and form complete independen
   const words = [{ timestamp: [0, 1], text: 'The' }, { timestamp: [1, 1], text: 'answer' }, { timestamp: [1, 1], text: 'lies' }, { timestamp: [1, 3], text: 'here.' }, { timestamp: [4, 5], text: 'Next.' }];
   const before = JSON.stringify(words);
   const { segments } = normalizeWordSentences(words, 6);
-  assert.deepEqual(segments, [{ start: 0, end: 3, text: 'The answer lies here.' }, { start: 4, end: 5, text: 'Next.' }]);
+  assert.deepEqual(segments.map(({ words, ...cue }) => cue), [{ start: 0, end: 3, text: 'The answer lies here.' }, { start: 4, end: 5, text: 'Next.' }]);
+  assert.deepEqual(segments.flatMap(cue => cue.words), words.map(word => ({ start: word.timestamp[0], end: word.timestamp[1], text: word.text })));
   assert.equal(JSON.stringify(words), before);
 });
 test('word sentence timing rejects reversed, unordered, missing and out-of-range anchors or zero-length sentences', () => {
@@ -154,7 +155,7 @@ test('word sentence timing rejects reversed, unordered, missing and out-of-range
 test('identical complementary DTW copies resolve to one sentence using only positive model spans', () => {
   const words = [{ timestamp: [0, 1], text: 'The' }, { timestamp: [1, 1], text: 'answer.' }, { timestamp: [1, 1], text: 'The' }, { timestamp: [1, 2], text: 'answer.' }];
   const { segments, duplicateSentences } = normalizeWordSentences(words, 3);
-  assert.deepEqual(segments, [{ start: 0, end: 2, text: 'The answer.' }]); assert.equal(duplicateSentences, 1);
+  assert.deepEqual(segments, [{ start: 0, end: 2, text: 'The answer.', words: [{ start: 0, end: 1, text: 'The' }, { start: 1, end: 2, text: 'answer.' }] }]); assert.equal(duplicateSentences, 1);
 });
 test('genuinely repeated sentences keep both copies even when their ranges touch', () => {
   const { segments, duplicateSentences } = normalizeWordSentences([

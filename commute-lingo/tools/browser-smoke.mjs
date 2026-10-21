@@ -4,6 +4,7 @@ import { chromium, webkit, expect } from '@playwright/test';
 import { mkdir, mkdtemp, readFile } from 'node:fs/promises';
 import { seedFixture } from './browser-fixture.mjs';
 import { runUpdateBrowser } from './update-browser.mjs';
+import { runReadingBrowser } from './reading-browser.mjs';
 import { runVocabularyBrowser } from './vocabulary-browser.mjs';
 import { createServer } from './server.mjs';
 const { version } = JSON.parse(await readFile(new URL('../package.json', import.meta.url)));
@@ -155,7 +156,7 @@ try {
             const inactive = document.querySelector('.subtitle-cue:not(.active) .sentence-text');
             return { activeWeight: +getComputedStyle(active).fontWeight, inactiveWeight: +getComputedStyle(inactive).fontWeight, differentColors: getComputedStyle(active).color !== getComputedStyle(inactive).color };
           });
-          assert.ok(emphasis.activeWeight >= 600 && emphasis.inactiveWeight <= 500 && emphasis.differentColors, JSON.stringify(emphasis));
+          assert.ok(emphasis.activeWeight <= 500 && emphasis.inactiveWeight <= 500 && emphasis.differentColors, JSON.stringify(emphasis));
           await page.evaluate(() => { const audio = document.getElementById('audio'); audio.currentTime = 0; audio.dispatchEvent(new Event('timeupdate')); });
           await page.screenshot({ path: new URL(`${name}-${viewport.width}-${size}-captions.png`, output).pathname });
           // Keyboard translation reaches the same long-press action, using a fake service.
@@ -243,6 +244,8 @@ try {
         phase = 'vocabulary-and-personal-backup';
         const vocabularyOutput = new URL(`${name}-${viewport.width}-vocabulary/`, output); await mkdir(vocabularyOutput, { recursive: true });
         await runVocabularyBrowser(page, { version, output: vocabularyOutput, onPhase: value => { phase = value; } });
+        const readingOutput = new URL(name + '-' + viewport.width + '-reading/', output); await mkdir(readingOutput, { recursive: true });
+        await runReadingBrowser(page, { version, output: readingOutput, onPhase: value => { phase = value; } });
         if (name === 'chromium') {
           phase = 'offline-preconditions';
           // Cache readiness alone does not establish that this document is

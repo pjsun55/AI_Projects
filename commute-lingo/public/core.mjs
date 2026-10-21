@@ -1,3 +1,4 @@
+import { normalizeWordAnchors } from './reading.mjs?v=0.2.15';
 export const SCHEMA = 'commute-lingo/1';
 const encoder = new TextEncoder();
 const plainText = value => String(value).replace(/<[^>]*>/g, '').trim();
@@ -17,6 +18,7 @@ export function formatTime(seconds, milliseconds = false) {
 
 export function normalizeSegments(input, duration) {
   if (!Array.isArray(input) || !input.length || input.length > 20000) throw new Error('字幕沒有有效段落，或段落數過多。');
+  let wordCount = 0;
   const segments = input.map((item, i) => {
     const times = item.timestamp ?? [item.start, item.end];
     const start = times[0];
@@ -28,7 +30,10 @@ export function normalizeSegments(input, duration) {
       throw new Error(`第 ${i + 1} 段的起訖時間無效；請先載入原音檔，再匯入字幕。`);
     }
     if (typeof item.text !== 'string' || !plainText(item.text)) throw new Error(`第 ${i + 1} 段缺少原文。`);
-    return { start, end, text: plainText(item.text), ...(inferredEnd ? { inferredEnd: true } : {}), ...(item.timingUncertain === true ? { timingUncertain: true } : {}) };
+    const words = normalizeWordAnchors(item.words, { start, end, text: plainText(item.text) });
+    wordCount += words?.length ?? 0;
+    if (wordCount > 20000) throw new Error('逐字時間資料過多。');
+    return { start, end, text: plainText(item.text), ...(words ? { words } : {}), ...(inferredEnd ? { inferredEnd: true } : {}), ...(item.timingUncertain === true ? { timingUncertain: true } : {}) };
   }).sort((a, b) => a.start - b.start);
   if (Number.isFinite(duration) && segments.some(s => s.end > duration + 2)) throw new Error('字幕超出音檔長度，請確認使用同一份音檔。');
   return segments;

@@ -1,5 +1,5 @@
-import { splitForTranslation } from './core.mjs?v=0.2.14';
-import { readJSON } from './network.mjs?v=0.2.14';
+import { splitForTranslation } from './core.mjs?v=0.2.15';
+import { readJSON } from './network.mjs?v=0.2.15';
 export const translationKey = (source, target, text) => JSON.stringify([source, target, text]);
 
 export function createTranslator({ fetchImpl = globalThis.fetch, load = async () => undefined, save = async () => {}, warn = () => {} } = {}) {

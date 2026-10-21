@@ -6,7 +6,7 @@ import { emptyLibrary, addAlbum, placeTrack, sentencesFor } from '../public/libr
 test('precise word timing retains the normal complete transcript path', () => {
   const result = availableTranscript({ timestampMode: 'word', processedSeconds: 60, chunks: [{ timestamp: [1, 2], text: 'A valid sentence.' }] }, 60);
   assert.equal(result.transcriptStatus, 'complete'); assert.equal(result.alignment, 'word-v1');
-  assert.deepEqual(result.segments, [{ start: 1, end: 2, text: 'A valid sentence.' }]);
+  assert.deepEqual(result.segments, [{ start: 1, end: 2, text: 'A valid sentence.', words: [{ start: 1, end: 2, text: 'A valid sentence.' }] }]);
 });
 test('a bad region keeps its text and physical window without discarding neighboring aligned sentences', () => {
   const result = availableTranscript({ timestampMode: 'mixed', processedSeconds: 60, regions: [

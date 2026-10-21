@@ -76,7 +76,9 @@ export async function runVocabularyBrowser(page, { version, output, onPhase = ()
   await expect.poll(async () => (await words()).words.length).toBe(1);
   await page.locator('[data-tab="settings"]').click();
   onPhase('personal-backup-restore');
-  await page.locator('#restore-backup').setInputFiles(filename);
+  const chooserEvent = page.waitForEvent('filechooser');
+  await page.locator('#restore-backup-button').click();
+  await (await chooserEvent).setFiles(filename);
   await expect(page.locator('#dialog-title')).toHaveText('預覽備份還原'); await expect(page.locator('#dialog-description')).toContainText('新增 1');
   await expect(page.locator('#restore-settings')).not.toBeChecked(); await page.locator('#dialog-confirm').click();
   await expect.poll(async () => (await words()).words.length).toBe(2);

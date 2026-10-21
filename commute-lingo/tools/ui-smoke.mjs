@@ -210,11 +210,16 @@ try {
   check($('subtitles-panel').hidden && !$('player').classList.contains('subtitles-open') && audio.currentTime === beforeLayoutToggle.time && audio.playbackRate === beforeLayoutToggle.speed && audio.paused === beforeLayoutToggle.paused && audio.src === beforeLayoutToggle.source, 'closing the reading layout restores normal mode without changing playback');
   click('toggle-subtitles');
   const cue = $('subtitle-list').children[0].querySelector('.sentence-text');
-  check($('subtitle-list').children[0].querySelectorAll('.sentence-text').length === 2 && cue.children.length > 1 && cue.textContent === fixtureSentence, 'sentences sharing a time card keep independent translation targets and preserve every original character');
+  const completeFirstCue = fixtureSentence + ' We learn one idea at a time.';
+  const pageNext = $('subtitle-list').children[0].querySelector('.reading-pages button:last-child'), pagePrevious = $('subtitle-list').children[0].querySelector('.reading-pages button:first-child');
+  const displayed = [cue.textContent], pageTime = audio.currentTime;
+  while (!pageNext.disabled) { pageNext.click(); displayed.push(cue.textContent); }
+  check(displayed.join(' ').replace(/\s+/gu, ' ') === completeFirstCue && displayed.every(text => Array.from(text).length <= 40) && audio.currentTime === pageTime, 'legacy long subtitles page without losing words, inventing time or seeking audio');
+  while (!pagePrevious.disabled) pagePrevious.click();
   cue.dispatchEvent(event('pointerdown', { button: 0, clientX: 10, clientY: 10 }));
   await until(() => !$('translation-panel').hidden && $('translation-text').textContent, 'long-press translation');
   check(audio.paused && translated === 1, 'long press pauses playback and translates the selected sentence');
-  check(translatedTexts[0] === fixtureSentence && $('translation-original').textContent === fixtureSentence && cue.classList.contains('translating') && !cue.nextElementSibling.classList.contains('translating'), 'long-pressing any clause translates and marks only its complete sentence');
+  check(translatedTexts[0] === completeFirstCue && $('translation-original').textContent === completeFirstCue && cue.classList.contains('translating') && !cue.nextElementSibling.classList.contains('translating'), 'long-pressing any clause translates and marks only its complete sentence');
   cue.dispatchEvent(event('click'));
   check(audio.paused && !$('translation-panel').hidden, 'the click after a long press never seeks or resumes playback');
   const translationModule = (await load(new URL(`../public/translation.mjs?v=${version}`, import.meta.url).href)).namespace;
@@ -354,7 +359,7 @@ try {
   check(mediaDownloads === downloadsBeforeRepair && repaired.id === repairTrack.id && repaired.albumId === repairTrack.albumId && repaired.title === repairTrack.title && !!await storageModule.read(`audio:${repairTrack.id}`), 'successful regeneration reuses saved audio and preserves its identity, title and album without downloading');
   check(wakeLocks.every(lock => lock.released), 'successful saved-audio regeneration restores normal screen sleep');
   audio.currentTime = 60; audio.dispatchEvent(event('timeupdate')); click('toggle-subtitles');
-  check($('transcript-notice').hidden && $('subtitle-list').children[1].getAttribute('aria-current') === 'true', 'new captions are immediately available past the former cutoff');
+  check(!$('transcript-notice').hidden && $('transcript-status').textContent.includes('只有整段時間') && $('subtitle-list').children[1].getAttribute('aria-current') === 'true', 'new captions remain available past the cutoff while missing word timing is disclosed');
   missingModelStart = true; click('regenerate-subtitles');
   await until(async () => (await library()).tracks[0].segments[0].timingUncertain && $('player').open, 'missing model time retained as a disclosed range');
   const uncertainTrack = (await library()).tracks[0];
@@ -362,7 +367,7 @@ try {
   check(!$('transcript-notice').hidden && $('transcript-status').textContent.includes('較粗時間範圍') && $('subtitle-list').children[0].textContent.includes('較粗的時間範圍'), 'player and affected caption visibly disclose uncertain timing');
   missingModelStart = false; click('regenerate-subtitles');
   await until(async () => !(await library()).tracks[0].segments[0].timingUncertain && $('player').open, 'normal model timing replaces the coarse range');
-  check($('transcript-notice').hidden && (await library()).tracks[0].metrics.timestampWarnings.length === 0, 'successful exact-time regeneration clears stale timing warnings');
+  check(!$('transcript-status').textContent.includes('較粗時間範圍') && (await library()).tracks[0].metrics.timestampWarnings.length === 0, 'successful sentence-time regeneration clears coarse warnings without claiming word timing');
   wordTranscript = true; click('regenerate-subtitles');
   await until(async () => (await library()).tracks[0].alignment === 'word-v1' && $('player').open, 'word timing saved as sentence captions');
   const aligned = (await library()).tracks[0];
@@ -373,8 +378,10 @@ try {
     audio.currentTime = time; audio.dispatchEvent(event('timeupdate'));
     check(activeRows().length === 1 && activeRows()[0] === $('subtitle-list').children[index] && activeRows()[0].getAttribute('aria-current') === 'true', `word-aligned playback at ${time}s highlights only sentence ${index + 1}`);
   }
+  audio.currentTime = .5; audio.dispatchEvent(event('timeupdate'));
+  check($('subtitle-list').querySelector('.spoken-word')?.textContent === 'Dr.' && aligned.segments[0].words.length === 2, 'saved word anchors drive a single live word cursor');
   audio.currentTime = 4.5; audio.dispatchEvent(event('timeupdate'));
-  check(activeRows().length === 0, 'a gap between aligned sentences leaves every card inactive');
+  check(activeRows().length === 0 && !$('subtitle-list').querySelector('.spoken-word'), 'a gap between aligned sentences leaves every card and word inactive');
   audio.currentTime = 0.5; audio.dispatchEvent(event('timeupdate')); click('next-sentence');
   check(audio.currentTime === 5 && activeRows()[0] === $('subtitle-list').children[1], 'next sentence seeks to the second model-aligned start');
   click('next-sentence'); click('previous-sentence');

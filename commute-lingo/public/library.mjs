@@ -1,4 +1,4 @@
-import { normalizeSegments, groupSentences } from './core.mjs?v=0.2.14';
+import { normalizeSegments, groupSentences } from './core.mjs?v=0.2.15';
 
 export const LIBRARY_KEY = 'library-v2';
 export const MAX_AUDIO_MINUTES = 60;
@@ -89,7 +89,7 @@ export function legacyLibrary(saved) {
   return { library, audio: { id: track.id, blob: saved.file }, translations: saved.doc.translations || [] };
 }
 export function sentencesFor(track) {
-  return track.alignment === 'mixed-v1'
+  return ['word-v1', 'mixed-v1'].includes(track.alignment) || track.segments.some(segment => segment.words?.length)
     ? track.segments.map(segment => ({ ...segment, incomplete: groupSentences([segment], track.language)[0]?.incomplete ?? true }))
     : groupSentences(track.segments, track.language);
 }
