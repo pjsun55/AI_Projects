@@ -526,6 +526,7 @@ try {
   sourceRow.querySelector('.album-management-header .round-button').dispatchEvent(event('click')); $('album-action').value = 'delete'; submit('dialog-form');
   await until(() => $('dialog-title').textContent === '刪除這個專輯？', 'remove word source album'); await confirm();
   check(!(await storageModule.read(`audio:${partial.id}`)) && (await words()).words.length === 3 && (await words()).words.some(word => word.id === selectedEntry.id), 'deleting the source album and audio leaves all vocabulary and notes intact');
+  check(!$('restore-backup-button').disabled && !$('restore-backup').disabled && !$('add-word').disabled, 'finishing a library write re-enables restore and vocabulary actions');
 
   const downloads = [];
   document.addEventListener('click', event => { if (event.target.localName === 'a' && event.target.download) downloads.push({ href: event.target.href, name: event.target.download }); });
@@ -537,6 +538,7 @@ try {
   resilienceRow.querySelector('.round-button').dispatchEvent(event('click')); $('word-action').value = 'delete'; submit('dialog-form');
   await until(() => $('dialog-title').textContent.includes('刪除「'), 'delete word confirm'); await confirm();
   check((await words()).words.length === 2, 'single-word deletion leaves other entries unchanged');
+  check(!$('restore-backup-button').disabled && !$('restore-backup').disabled && !$('add-word').disabled, 'finishing a vocabulary write re-enables restore and vocabulary actions');
   Object.defineProperty($('restore-backup'), 'files', { configurable: true, value: [exportedBlob] }); $('restore-backup').dispatchEvent(event('change'));
   await until(() => $('dialog-title').textContent === '預覽備份還原' && $('action-dialog').open, 'restore preview');
   const revisionBeforeCancel = (await words()).revision;

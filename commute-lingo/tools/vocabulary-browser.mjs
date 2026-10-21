@@ -66,7 +66,7 @@ export async function runVocabularyBrowser(page, { version, output, onPhase = ()
 
   onPhase('personal-backup-download');
   await page.locator('[data-tab="settings"]').click();
-  const downloadEvent = page.waitForEvent('download'); await page.locator('#backup-library').click(); const download = await downloadEvent;
+  const [download] = await Promise.all([page.waitForEvent('download'), page.locator('#backup-library').click()]);
   const filename = new URL('personal-backup.json', output).pathname; await download.saveAs(filename);
   const backup = JSON.parse(await readFile(filename, 'utf8'));
   assert.equal(backup.vocabulary.words.length, 2); assert.ok(!Object.hasOwn(backup, 'library')); assert.ok(!Object.hasOwn(backup, 'translations'));
@@ -76,9 +76,9 @@ export async function runVocabularyBrowser(page, { version, output, onPhase = ()
   await expect.poll(async () => (await words()).words.length).toBe(1);
   await page.locator('[data-tab="settings"]').click();
   onPhase('personal-backup-restore');
-  const chooserEvent = page.waitForEvent('filechooser');
-  await page.locator('#restore-backup-button').click();
-  await (await chooserEvent).setFiles(filename);
+  await expect(page.locator('#restore-backup-button')).toBeEnabled();
+  const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.locator('#restore-backup-button').click()]);
+  await chooser.setFiles(filename);
   await expect(page.locator('#dialog-title')).toHaveText('預覽備份還原'); await expect(page.locator('#dialog-description')).toContainText('新增 1');
   await expect(page.locator('#restore-settings')).not.toBeChecked(); await page.locator('#dialog-confirm').click();
   await expect.poll(async () => (await words()).words.length).toBe(2);

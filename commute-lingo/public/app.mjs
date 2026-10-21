@@ -88,7 +88,7 @@ async function commit(next, options = {}) {
   if (!state.ready) throw new Error('收藏尚未讀取完成，請稍後再試。');
   if (state.writing || state.clearing || state.restoring) throw new Error('資料儲存中，請稍後再試。');
   if (state.job) throw new Error('請等待來源匯入完成，或先停止處理。');
-  state.writing = true;
+  state.writing = true; renderWriteControls();
   const previous = state.library, expectedRevision = previous.revision;
   next = { ...next, revision: expectedRevision + 1 };
   const removeIds = previous.tracks.filter(track => !next.tracks.some(item => item.id === track.id)).map(track => track.id);
@@ -103,7 +103,7 @@ async function commit(next, options = {}) {
   } catch (error) {
     if (error.name === 'QuotaExceededError') throw new Error(`儲存空間不足，原有資料已保留。${state.pending ? '請先整理收藏後再加入；本次轉換仍暫存在這個分頁。' : '請先整理收藏後再試。'}`);
     throw error;
-  } finally { state.writing = false; }
+  } finally { state.writing = false; renderWriteControls(); }
 }
 function render() {
   renderPlaylist(); renderLibrary(); renderSettings(); renderVocabulary();
@@ -112,11 +112,15 @@ function render() {
   $('file-import-limit').textContent = $('import-limit').textContent;
   $('backup-library').disabled = !state.ready || !!state.backup || state.restoring;
   $('share-backup').disabled = $('backup-library').disabled;
-  $('restore-backup').disabled = !state.ready || state.restoring || state.writing;
-  $('restore-backup-button').disabled = $('restore-backup').disabled;
-  $('add-word').disabled = !state.ready || state.writing || state.restoring;
+  renderWriteControls();
   $('legacy-backup').hidden = !state.legacy;
   updatePlayer(); refreshStorage();
+}
+function renderWriteControls() {
+  const disabled = !state.ready || state.restoring || state.writing;
+  $('restore-backup').disabled = disabled;
+  $('restore-backup-button').disabled = disabled;
+  $('add-word').disabled = disabled;
 }
 function trackRow(track, manage = false) {
   const row = node('div', `track-row${state.current === track.id ? ' active' : ''}`);
@@ -180,12 +184,12 @@ async function commitWords(next) {
   const expectedRevision = state.vocabulary.revision;
   next = validateVocabulary({ ...next, revision: expectedRevision + 1 });
   personalBackup(state.library.settings, next); // Keep every saved notebook exportable within the import limit.
-  state.writing = true;
+  state.writing = true; renderWriteControls();
   try {
     await storage.commitVocabulary(next, { expectedRevision, expectedGeneration: state.vocabulary.generation });
     state.vocabulary = next; renderVocabulary(); renderWordSelection();
     state.channel?.postMessage({ type: 'words-changed' });
-  } finally { state.writing = false; renderWordSelection(); }
+  } finally { state.writing = false; renderWriteControls(); renderWordSelection(); }
 }
 function cancelWordLookup() {
   state.wordLookup?.controller.abort(); state.wordLookup = null;
