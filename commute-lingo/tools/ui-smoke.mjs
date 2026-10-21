@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const root = await realpath(fileURLToPath(new URL('..', import.meta.url)));
+const { version } = JSON.parse(await readFile(new URL('../package.json', import.meta.url)));
 const timers = new Set();
 const schedule = (callback, delay, ...args) => { const timer = setTimeout(() => { timers.delete(timer); callback(...args); }, delay); timers.add(timer); return timer; };
 const cancel = timer => { clearTimeout(timer); timers.delete(timer); };
@@ -68,17 +69,23 @@ try {
   audio.play = async () => { paused = false; audio.dispatchEvent(event('play')); };
   audio.pause = () => { if (!paused) { paused = true; audio.dispatchEvent(event('pause')); } };
   audio.load = () => { audio.currentTime = 0; };
-  const fakeCaches = new Map([['commute-lingo-models-v1', true], ['another-app-models', true], ['commute-lingo-shell-0.2.13-r1', true]]);
-  const location = { href: 'https://example.test/commute-lingo/?v=0.2.13', hash: '' };
+  const fakeCaches = new Map([['commute-lingo-models-v1', true], ['another-app-models', true], [`commute-lingo-shell-${version}-r1`, true]]);
+  const location = { href: `https://example.test/commute-lingo/?v=${version}`, hash: '' };
   const screen = { width: 393, height: 852, orientation: { type: 'portrait-primary', addEventListener() {} } };
   const fixtureSentence = 'While the train moves through the city and the morning sun fills the windows, I listen to a familiar story and notice the expressions I missed yesterday, then I repeat a useful sentence quietly and save the lesson for another journey.';
-  const translatedTexts = [];
+  const translatedTexts = [], dictionaryWords = [], heldWordLookups = []; let failWordLookups = false, holdWordLookups = false;
   let fixtureName = 'A short test episode', fixtureMillis = 4000, fixtureSeconds = 4, partialTranscript = false, missingModelStart = false, wordTranscript = false, mixedTranscript = false, holdWorker = false, failWorker = false, mediaDownloads = 0, catalogLookups = 0, translated = 0;
   const runtimeFetch = async (input, options = {}) => {
     const url = new URL(input);
     if (url.hostname === 'itunes.apple.com') { catalogLookups++; return Response.json({ results: [{ trackId: 1000796641961, trackName: fixtureName, collectionName: 'Public fixture', trackTimeMillis: fixtureMillis, episodeUrl: 'https://media.example.com/fixture.wav' }] }); }
     if (url.hostname === 'media.example.com') { mediaDownloads++; return new Response(new Blob(['wav fixture'], { type: 'audio/wav' })); }
-    if (url.hostname === 'api.mymemory.translated.net') { translated++; translatedTexts.push(url.searchParams.get('q')); return Response.json({ responseStatus: 200, responseData: { translatedText: '每段旅程都會帶來新的發現。' } }); }
+    if (url.hostname === 'api.mymemory.translated.net') { translated++; translatedTexts.push(url.searchParams.get('q')); if (failWordLookups) throw new Error('Simulated offline lookup'); const response = Response.json({ responseStatus: 200, responseData: { translatedText: '每段旅程都會帶來新的發現。' } }); if (holdWordLookups) return new Promise(resolve => heldWordLookups.push(() => resolve(response))); return response; }
+    if (url.hostname === 'freedictionaryapi.com') {
+      const word = decodeURIComponent(url.pathname.split('/').at(-1)); dictionaryWords.push(word);
+      if (failWordLookups) return new Response('', { status: 503 });
+      const response = Response.json({ word, source: { license: { name: 'CC BY-SA 4.0' } }, entries: [{ language: { code: 'en' }, partOfSpeech: 'noun', pronunciations: [{ type: 'ipa', text: '/test/' }], senses: [{ definition: 'A public fixture definition.' }] }] });
+      if (holdWordLookups) return new Promise(resolve => heldWordLookups.push(() => resolve(response))); return response;
+    }
     throw new Error('No user content may leave this simulated environment.');
   };
   class Probe {
@@ -105,8 +112,8 @@ try {
     wakeLocks.push(sentinel); return sentinel;
   } };
   Object.assign(context, { document, window, location, history: { replaceState(_, __, hash) { location.hash = hash; } }, screen, matchMedia: () => ({ matches: true }), navigator: { wakeLock, storage: { estimate: async () => ({ usage: 1024, quota: 1000000000 }), persisted: async () => false, persist: async () => false }, mediaSession: { setActionHandler() {}, setPositionState() {} } }, caches: { keys: async () => [...fakeCaches.keys()], delete: async key => fakeCaches.delete(key) }, indexedDB: fake.namespace.indexedDB, IDBKeyRange: fake.namespace.IDBKeyRange, Audio: Probe, OfflineAudioContext: Context, Worker, fetch: runtimeFetch });
-  await evaluate(await load(new URL('../public/app.mjs?v=0.2.13', import.meta.url).href));
-  const storageModule = (await load(new URL('../public/storage.mjs?v=0.2.13', import.meta.url).href)).namespace;
+  await evaluate(await load(new URL(`../public/app.mjs?v=${version}`, import.meta.url).href));
+  const storageModule = (await load(new URL(`../public/storage.mjs?v=${version}`, import.meta.url).href)).namespace;
   const library = () => storageModule.read('library-v2');
   const click = id => $(id).dispatchEvent(event('click'));
   const submit = id => $(id).dispatchEvent(event('submit'));
@@ -210,7 +217,7 @@ try {
   check(translatedTexts[0] === fixtureSentence && $('translation-original').textContent === fixtureSentence && cue.classList.contains('translating') && !cue.nextElementSibling.classList.contains('translating'), 'long-pressing any clause translates and marks only its complete sentence');
   cue.dispatchEvent(event('click'));
   check(audio.paused && !$('translation-panel').hidden, 'the click after a long press never seeks or resumes playback');
-  const translationModule = (await load(new URL('../public/translation.mjs?v=0.2.13', import.meta.url).href)).namespace;
+  const translationModule = (await load(new URL(`../public/translation.mjs?v=${version}`, import.meta.url).href)).namespace;
   const freshTranslator = translationModule.createTranslator({ load: key => storageModule.read(`translation:${key}`), save: (key, entry) => storageModule.write(`translation:${key}`, entry), fetchImpl: async () => { throw new Error('No network expected after persisted cache'); } });
   const restored = await freshTranslator.translate($('translation-original').textContent, 'en');
   check(restored.cached && restored.persisted && translated === 1, 'a fresh translation client reads saved Chinese from IndexedDB without an external request');
@@ -455,6 +462,119 @@ try {
   audio.currentTime = 1.5; audio.dispatchEvent(event('timeupdate'));
   check($('subtitle-list').querySelectorAll('.active').length === 1 && $('subtitle-list').textContent.includes('較粗的時間範圍'), 'coarse timing stays disclosed and still highlights at most one region');
   check(mediaDownloads === downloadsBeforeFile && catalogLookups === lookupsBeforeFile && translated === translationsBeforeFile, 'audio-only and partial local results never upload audio or request extra translation');
+  // Vocabulary and personal-backup regression uses only fake API responses.
+  click('player-close'); await delay(10); audio.pause();
+  document.querySelector('[data-tab="vocabulary"]').dispatchEvent(event('click'));
+  const words = () => storageModule.read('vocabulary-v1');
+  click('add-word'); $('new-word').value = 'resilience'; $('word-tags').value = '生活,工作'; await confirm();
+  await until(async () => (await words())?.words[0]?.dictionary && !$('vocabulary-list').textContent.includes('正在查詢'), 'word translation and dictionary persisted');
+  check((await words()).words.length === 1 && translatedTexts.at(-1) === 'resilience' && dictionaryWords.at(-1) === 'resilience', 'one collection sends only the word to translation and dictionary and saves its metadata');
+  $('vocabulary-list').querySelector('.word-main').dispatchEvent(event('click'));
+  $('word-translation').value = '我的復原力解釋'; $('word-note').value = '<img src=x onerror=alert(1)> My note'; $('word-status').value = 'known'; await confirm();
+  check((await words()).words[0].note.includes('<img') && !document.querySelector('#vocabulary-list img'), 'manual notes persist as text without executing markup');
+  $('vocabulary-list').querySelector('.word-star').dispatchEvent(event('click')); await until(async () => (await words()).words[0].starred, 'star committed');
+  $('vocabulary-filter').value = 'known'; $('vocabulary-filter').dispatchEvent(event('change'));
+  check($('vocabulary-list').querySelectorAll('.word-card').length === 1, 'learning-state filter finds the edited word');
+  $('vocabulary-tag').value = 'tag:工作'; $('vocabulary-tag').dispatchEvent(event('change'));
+  check($('vocabulary-list').querySelectorAll('.word-card').length === 1, 'topic filter can be combined with learning state');
+  $('vocabulary-search').value = 'not-found'; $('vocabulary-search').dispatchEvent(event('input'));
+  check(!$('vocabulary-list').querySelector('.word-card'), 'search filters without altering saved data');
+  $('vocabulary-search').value = ''; $('vocabulary-filter').value = 'all'; $('vocabulary-tag').value = 'all'; $('vocabulary-search').dispatchEvent(event('input'));
+  const lookupCount = translated + dictionaryWords.length;
+  click('add-word'); $('new-word').value = 'RESILIENCE'; submit('dialog-form'); await until(() => $('dialog-error').textContent.includes('已在單字本'), 'duplicate rejected');
+  check((await words()).words.length === 1 && translated + dictionaryWords.length === lookupCount, 'duplicate collection keeps notes and makes no new API request');
+  click('dialog-cancel'); await delay(10);
+  failWordLookups = true; click('add-word'); $('new-word').value = 'outage'; await confirm();
+  await until(() => !$('vocabulary-list').textContent.includes('正在查詢'), 'failed enrichment ends');
+  check((await words()).words.some(word => word.word === 'outage' && !word.translation && !word.dictionary), 'offline or failed API never discards the newly collected word');
+  failWordLookups = false;
+  const outageRow = [...$('vocabulary-list').querySelectorAll('.word-card')].find(row => row.textContent.includes('outage'));
+  outageRow.querySelector('.round-button').dispatchEvent(event('click')); $('word-action').value = 'lookup'; submit('dialog-form');
+  await until(async () => (await words()).words.find(word => word.word === 'outage')?.dictionary && !$('vocabulary-list').textContent.includes('正在查詢'), 'explicit retry fills missing data');
+  check(!!(await words()).words.find(word => word.word === 'outage').translation, 'explicit retry completes the saved word without replacing another word');
+
+  // Preserve native selection behavior and survive the range collapsing when
+  // the separate page button is tapped; no native menu is simulated here.
+  document.querySelector('[data-tab="playlist"]').dispatchEvent(event('click'));
+  [...$('playlist-tracks').querySelectorAll('.track-main')].find(row => row.textContent.includes(partial.title)).dispatchEvent(event('click'));
+  await until(() => $('player').open, 'reopen selection source'); if ($('subtitles-panel').hidden) click('toggle-subtitles');
+  $('subtitle-list').querySelector('.sentence-text').dispatchEvent(event('keydown', { key: 'Enter' }));
+  await until(() => !$('translation-panel').hidden, 'selection translation panel');
+  const original = $('translation-original'), selectedWord = original.textContent.match(/\p{L}+/u)[0];
+  let selection = { isCollapsed: false, rangeCount: 1, anchorNode: original.firstChild, focusNode: original.firstChild, toString: () => selectedWord };
+  document.getSelection = () => selection;
+  const change = event('selectionchange'); document.dispatchEvent(change);
+  check(!$('save-selected-word').disabled && !change.defaultPrevented && $('word-selection-label').textContent.includes(selectedWord), 'valid original-text selection enables the separate save action without cancelling native selection');
+  selection.isCollapsed = true; document.dispatchEvent(event('selectionchange')); click('save-selected-word');
+  await until(async () => (await words()).words.length === 3 && (await words()).words.find(word => word.word === selectedWord)?.dictionary && !$('vocabulary-list').textContent.includes('正在查詢'), 'selected word saved after collapsed selection');
+  const selectedEntry = (await words()).words.find(word => word.word === selectedWord);
+  check(selectedEntry.sourceTitle === partial.title && !Object.hasOwn(selectedEntry, 'sentence') && !Object.hasOwn(selectedEntry, 'audio'), 'selection saves only the word and source title, with no sentence or audio');
+  selection = { ...selection, isCollapsed: false, toString: () => 'two words' }; document.dispatchEvent(event('selectionchange'));
+  check($('save-selected-word').disabled, 'multi-word selection cannot be collected in the single-word version');
+  const menu = event('contextmenu'); original.dispatchEvent(menu); check(!menu.defaultPrevented, 'translation original leaves the browser context menu untouched');
+  click('player-close'); await delay(10); audio.pause();
+
+  const sourceAlbum = (await library()).albums.find(album => album.id === partial.albumId);
+  const sourceRow = [...$('library-albums').querySelectorAll('.album-management')].find(row => row.querySelector('h3').textContent === sourceAlbum.title);
+  sourceRow.querySelector('.album-management-header .round-button').dispatchEvent(event('click')); $('album-action').value = 'delete'; submit('dialog-form');
+  await until(() => $('dialog-title').textContent === '刪除這個專輯？', 'remove word source album'); await confirm();
+  check(!(await storageModule.read(`audio:${partial.id}`)) && (await words()).words.length === 3 && (await words()).words.some(word => word.id === selectedEntry.id), 'deleting the source album and audio leaves all vocabulary and notes intact');
+
+  const downloads = [];
+  document.addEventListener('click', event => { if (event.target.localName === 'a' && event.target.download) downloads.push({ href: event.target.href, name: event.target.download }); });
+  click('backup-library'); await until(() => downloads.length === 1, 'personal JSON download prepared');
+  const exportedBlob = await (await fetch(downloads[0].href)).blob(), exported = JSON.parse(await exportedBlob.text());
+  check(downloads[0].name.endsWith('.json') && exported.vocabulary.words.length === 3 && !Object.hasOwn(exported, 'library') && !Object.hasOwn(exported, 'translations'), 'UI backup exports settings and words as JSON without albums, audio, subtitles or translation caches');
+  const resilience = (await words()).words.find(word => word.word === 'resilience');
+  const resilienceRow = [...$('vocabulary-list').querySelectorAll('.word-card')].find(row => row.dataset.wordId === resilience.id);
+  resilienceRow.querySelector('.round-button').dispatchEvent(event('click')); $('word-action').value = 'delete'; submit('dialog-form');
+  await until(() => $('dialog-title').textContent.includes('刪除「'), 'delete word confirm'); await confirm();
+  check((await words()).words.length === 2, 'single-word deletion leaves other entries unchanged');
+  Object.defineProperty($('restore-backup'), 'files', { configurable: true, value: [exportedBlob] }); $('restore-backup').dispatchEvent(event('change'));
+  await until(() => $('dialog-title').textContent === '預覽備份還原' && $('action-dialog').open, 'restore preview');
+  const revisionBeforeCancel = (await words()).revision;
+  check($('dialog-description').textContent.includes('新增 1') && !$('restore-settings').checked, 'restore previews additions and duplicates, with settings opt-in');
+  click('dialog-cancel'); await delay(20); check((await words()).revision === revisionBeforeCancel, 'cancelling restore leaves the vocabulary unchanged');
+  $('restore-backup').dispatchEvent(event('change')); await until(() => $('action-dialog').open && $('restore-settings'), 'reopen restore preview'); await confirm();
+  check((await words()).words.length === 3 && (await words()).words.find(word => word.word === 'resilience').note.includes('My note') && (await library()).tracks.length === 0, 'confirmed restore merges entries and notes without restoring deleted audio or albums');
+  const revisionBeforeBadFile = (await words()).revision;
+  Object.defineProperty($('restore-backup'), 'files', { configurable: true, value: [new Blob(['invalid JSON'])] }); $('restore-backup').dispatchEvent(event('change'));
+  await until(() => $('global-message').textContent.includes('有效的 JSON'), 'invalid backup rejected');
+  check((await words()).revision === revisionBeforeBadFile, 'malformed backup cannot change existing data');
+
+  // Transactions are exercised against fake-indexeddb, including an injected
+  // second-put quota failure after the library put has already been queued.
+  const stable = await storageModule.readPersonalData();
+  await assert.rejects(storageModule.commitVocabulary(stable.vocabulary, { expectedRevision: stable.vocabulary.revision - 1, expectedGeneration: stable.vocabulary.generation }));
+  await assert.rejects(storageModule.commitVocabulary(stable.vocabulary, { expectedRevision: stable.vocabulary.revision, expectedGeneration: 'another-generation' }));
+  const VocabularyStore = fake.namespace.IDBObjectStore, vocabularyOriginalPut = VocabularyStore.prototype.put;
+  VocabularyStore.prototype.put = function(value, key) { if (key === 'vocabulary-v1') throw new DOMException('Injected quota failure', 'QuotaExceededError'); return vocabularyOriginalPut.call(this, value, key); };
+  try {
+    await assert.rejects(storageModule.commitPersonalData({ ...stable.library, revision: stable.library.revision + 1, settings: { ...stable.library.settings, subtitleSize: 'large' } }, { ...stable.vocabulary, revision: stable.vocabulary.revision + 1 }, { expectedLibraryRevision: stable.library.revision, expectedVocabularyRevision: stable.vocabulary.revision, expectedGeneration: stable.vocabulary.generation, expectedLibrary: stable.library }));
+  } finally { VocabularyStore.prototype.put = vocabularyOriginalPut; }
+  const afterFailure = await storageModule.readPersonalData();
+  check(JSON.stringify(afterFailure) === JSON.stringify(stable), 'quota failure rolls back both settings and vocabulary, and stale revisions or generations are rejected');
+  const sameRevisionNewLibrary = { ...stable.library, albums: [...stable.library.albums, { id: 'replacement-generation-album', title: 'New after clear' }] };
+  await storageModule.write('library-v2', sameRevisionNewLibrary);
+  await assert.rejects(storageModule.commitPersonalData(stable.library, stable.vocabulary, { expectedLibraryRevision: stable.library.revision, expectedVocabularyRevision: stable.vocabulary.revision, expectedGeneration: stable.vocabulary.generation, expectedLibrary: stable.library }));
+  check((await library()).albums.some(album => album.id === 'replacement-generation-album'), 'restore rejects different library content even when a clear-and-recreate cycle reuses the revision number');
+  await storageModule.write('library-v2', stable.library);
+  let sharedBackup;
+  context.File = File;
+  context.navigator.canShare = ({ files }) => files.length === 1 && files[0].name.endsWith('.json');
+  context.navigator.share = async ({ files }) => { sharedBackup = JSON.parse(await files[0].text()); };
+  click('share-backup'); await until(() => $('action-dialog').open && $('dialog-title').textContent === '備份已準備好', 'share backup prepared'); await confirm();
+  check(sharedBackup.vocabulary.words.length === 3 && !sharedBackup.library && !sharedBackup.translations, 'share flow prepares the same text-only JSON and waits for the explicit system-share action');
+  $('setting-subtitles').value = 'normal'; submit('settings-form');
+  await until(async () => (await library()).settings.subtitleSize === 'normal', 'change preference before settings restore');
+  Object.defineProperty($('restore-backup'), 'files', { configurable: true, value: [exportedBlob] }); $('restore-backup').dispatchEvent(event('change'));
+  await until(() => $('action-dialog').open && $('restore-settings'), 'settings restore preview'); $('restore-settings').checked = true; await confirm();
+  check((await library()).settings.subtitleSize === exported.settings.subtitleSize && $('setting-subtitles').value === exported.settings.subtitleSize, 'opting in restores validated settings along with vocabulary without restoring albums');
+  holdWordLookups = true; click('add-word'); $('new-word').value = 'delayed'; await confirm();
+  await until(() => heldWordLookups.length === 2, 'both API responses held after initial word persistence');
+  click('clear-data'); await until(() => $('dialog-title').textContent === '清除全部收藏與資料？' && $('action-dialog').open, 'clear during lookup confirmation'); await confirm();
+  for (const release of heldWordLookups) release(); await delay(30);
+  check(!(await words()) && !(await library()) && !(await storageModule.entries('translation:')).length, 'clearing all data cancels lookups and late API responses cannot resurrect words or translation caches');
   console.log(JSON.stringify({ status: 'UI_AND_IDB_SIMULATION_PASS', assertions, externalModuleHosts: [...requests], renderer: 'none; not browser or iPhone verification' }, null, 2));
 } catch (error) {
   console.error(error.stack ?? error);

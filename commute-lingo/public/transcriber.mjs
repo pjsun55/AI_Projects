@@ -1,5 +1,5 @@
-import { transcribeWindows } from './asr.mjs?v=0.2.13';
-import { formatTime } from './core.mjs?v=0.2.13';
+import { transcribeWindows } from './asr.mjs?v=0.2.14';
+import { formatTime } from './core.mjs?v=0.2.14';
 let pipeline;
 self.onmessage = async ({ data }) => {
   if (data.type !== 'transcribe') return;

@@ -1,5 +1,5 @@
-import { splitForTranslation } from './core.mjs?v=0.2.13';
-import { readJSON } from './network.mjs?v=0.2.13';
+import { splitForTranslation } from './core.mjs?v=0.2.14';
+import { readJSON } from './network.mjs?v=0.2.14';
 export const translationKey = (source, target, text) => JSON.stringify([source, target, text]);
 
 export function createTranslator({ fetchImpl = globalThis.fetch, load = async () => undefined, save = async () => {}, warn = () => {} } = {}) {
@@ -13,7 +13,7 @@ export function createTranslator({ fetchImpl = globalThis.fetch, load = async ()
       for (const entry of entries) {
         const key = translationKey(entry.source, entry.target, entry.text);
         memory.set(key, entry);
-        try { await save(key, entry); persisted.add(key); } catch { warn('翻譯暫存僅保留於本次開啟；可匯出收藏備份。'); }
+        try { await save(key, entry); persisted.add(key); } catch { warn('翻譯暫存僅保留於本次開啟，下次可能需要重新翻譯。'); }
       }
     },
     async translate(text, source, { signal, target = 'zh-TW' } = {}) {
@@ -52,7 +52,7 @@ export function createTranslator({ fetchImpl = globalThis.fetch, load = async ()
             if (Number(body?.responseStatus) !== 200 || typeof body.responseData?.translatedText !== 'string' || !body.responseData.translatedText.trim() || body.responseData.translatedText.length > 10000) throw new Error('翻譯服務未提供有效結果，請稍後再試。');
             part = { source, target, text: chunk, translation: body.responseData.translatedText };
             memory.set(partKey, part);
-            try { await save(partKey, part); persisted.add(partKey); } catch { warn('翻譯暫存僅保留於本次開啟；可匯出收藏備份。'); }
+            try { await save(partKey, part); persisted.add(partKey); } catch { warn('翻譯暫存僅保留於本次開啟，下次可能需要重新翻譯。'); }
           } catch (error) {
             if (error.name === 'AbortError' && !signal?.aborted) throw new Error('翻譯逾時，請檢查連線後重試。');
             throw error;
@@ -66,7 +66,7 @@ export function createTranslator({ fetchImpl = globalThis.fetch, load = async ()
       cancelled(signal);
       const entry = { source, target, text, translation: translated.join('\n') };
       memory.set(key, entry);
-      try { await save(key, entry); persisted.add(key); } catch { warn('翻譯暫存僅保留於本次開啟；可匯出收藏備份。'); }
+      try { await save(key, entry); persisted.add(key); } catch { warn('翻譯暫存僅保留於本次開啟，下次可能需要重新翻譯。'); }
       return { ...entry, cached: false, persisted: persisted.has(key) };
     }
   };

@@ -4,6 +4,7 @@ import { chromium, webkit, expect } from '@playwright/test';
 import { mkdir, mkdtemp, readFile } from 'node:fs/promises';
 import { seedFixture } from './browser-fixture.mjs';
 import { runUpdateBrowser } from './update-browser.mjs';
+import { runVocabularyBrowser } from './vocabulary-browser.mjs';
 import { createServer } from './server.mjs';
 const { version } = JSON.parse(await readFile(new URL('../package.json', import.meta.url)));
 const basePath = '/AI_Projects/commute-lingo/';
@@ -49,6 +50,9 @@ try {
             mockedTranslations++;
             return route.fulfill({ json: { responseStatus: 200, responseData: { translatedText: translationFixture } } });
           }
+          if (target.hostname === 'freedictionaryapi.com') {
+            return route.fulfill({ json: { word: decodeURIComponent(target.pathname.split('/').at(-1)), source: { license: { name: 'CC BY-SA 4.0' } }, entries: [{ language: { code: 'en' }, partOfSpeech: 'noun', pronunciations: [{ type: 'ipa', text: '/test/' }], senses: [{ definition: 'A public fixture definition.' }] }] } });
+          }
           return route.abort(); // No private data or fixture audio leaves CI.
         });
         await page.goto(url);
@@ -58,7 +62,7 @@ try {
         await page.waitForFunction(() => !document.getElementById('start-import').disabled && document.querySelector('#playlist-tracks .track-main'));
         assert.equal(await page.evaluate(() => getComputedStyle(document.documentElement).fontSize), '20px');
         assert.ok(Math.abs(await page.locator('#playlist-title').evaluate(element => parseFloat(getComputedStyle(element).fontSize)) - 35.2) < 0.05, 'Large headings must retain their original size');
-        for (const tab of ['playlist', 'library', 'import', 'settings']) {
+        for (const tab of ['playlist', 'library', 'vocabulary', 'import', 'settings']) {
           await page.locator(`[data-tab="${tab}"]`).click();
           assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `${tab}: enlarged interface must fit portrait width`);
           await page.screenshot({ path: new URL(`${name}-${viewport.width}-${tab}-ui125.png`, output).pathname });
@@ -236,6 +240,9 @@ try {
           await storage.commitLibrary({ ...original, revision: current.revision + 1 }, { expectedRevision: current.revision, removeIds: ['fixture-audio-only', 'fixture-partial'] });
         }, { version, original: beforeAvailable });
         await page.reload();
+        phase = 'vocabulary-and-personal-backup';
+        const vocabularyOutput = new URL(`${name}-${viewport.width}-vocabulary/`, output); await mkdir(vocabularyOutput, { recursive: true });
+        await runVocabularyBrowser(page, { version, output: vocabularyOutput });
         if (name === 'chromium') {
           phase = 'offline-preconditions';
           // Cache readiness alone does not establish that this document is
@@ -268,7 +275,7 @@ try {
           const offlineResponse = await page.reload();
           assert.equal(offlineResponse?.fromServiceWorker(), true, 'Offline navigation must come from the service worker.');
           await page.waitForFunction(() => document.querySelector('#playlist-tracks .track-main'));
-          for (const tab of ['settings', 'library', 'import', 'playlist']) {
+          for (const tab of ['settings', 'library', 'vocabulary', 'import', 'playlist']) {
             await page.locator(`[data-tab="${tab}"]`).click();
             const response = await page.reload();
             assert.equal(response?.fromServiceWorker(), true, `Offline ${tab} navigation must come from the service worker.`);

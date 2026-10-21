@@ -1,4 +1,39 @@
+import { validateSettings, changeSettings } from './library.mjs?v=0.2.14';
+import { validateVocabulary, mergeVocabulary } from './vocabulary.mjs?v=0.2.14';
+
+export const PERSONAL_BACKUP_SCHEMA = 'commute-lingo-personal-backup/1';
+export const MAX_BACKUP_BYTES = 32 * 1024 * 1024;
 const encoder = new TextEncoder();
+const preferenceKeys = ['albumLimit', 'trackLimit', 'maxMinutes', 'autoUpdate', 'subtitleSize', 'icon', 'language', 'model'];
+function backupSettings(value) {
+  const settings = validateSettings(value);
+  return Object.fromEntries(preferenceKeys.map(key => [key, settings[key]]));
+}
+
+export function personalBackup(settings, vocabulary, now = new Date()) {
+  const book = validateVocabulary(vocabulary);
+  const backup = { schema: PERSONAL_BACKUP_SCHEMA, createdAt: now.toISOString(), settings: backupSettings(settings), vocabulary: { ...book, revision: 0 } };
+  const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+  if (blob.size > MAX_BACKUP_BYTES) throw new Error('備份超過 32 MB，請先整理過長的筆記或字典內容。');
+  return blob;
+}
+export async function readPersonalBackup(file) {
+  if (!file || !Number.isFinite(file.size) || file.size <= 0 || file.size > MAX_BACKUP_BYTES || typeof file.text !== 'function') throw new Error('請選擇不超過 32 MB 的設定與單字本 JSON 備份。');
+  let value;
+  try { value = JSON.parse(await file.text()); } catch { throw new Error('備份不是有效的 JSON，沒有變更原有資料。'); }
+  if (!value || value.schema !== PERSONAL_BACKUP_SCHEMA || typeof value.createdAt !== 'string' || value.createdAt.length > 40 || !Number.isFinite(Date.parse(value.createdAt))) throw new Error('僅支援新版「設定與單字本」JSON 備份；不支援舊收藏 ZIP。');
+  const keys = ['schema', 'createdAt', 'settings', 'vocabulary'];
+  if (Object.keys(value).some(key => !keys.includes(key)) || !value.settings || typeof value.settings !== 'object' || Array.isArray(value.settings)) throw new Error('備份包含非預期的資料欄位，未進行還原。');
+  return { schema: PERSONAL_BACKUP_SCHEMA, createdAt: value.createdAt, settings: backupSettings(value.settings), vocabulary: validateVocabulary(value.vocabulary) };
+}
+export function planPersonalRestore(library, vocabulary, backup, { restoreSettings = false, ...options } = {}) {
+  if (backup.schema !== PERSONAL_BACKUP_SCHEMA) throw new Error('備份格式無效。');
+  const nextLibrary = restoreSettings ? changeSettings(library, backup.settings) : library;
+  return { library: nextLibrary, ...mergeVocabulary(vocabulary, backup.vocabulary, options) };
+}
+
+// Legacy ZIP encoder is retained for existing callers/tests; the app's personal
+// backup path above never reads or exports audio, albums or translation caches.
 const table = Uint32Array.from({ length: 256 }, (_, i) => { let n = i; for (let bit = 0; bit < 8; bit++) n = n & 1 ? 0xedb88320 ^ (n >>> 1) : n >>> 1; return n >>> 0; });
 export async function crc32(blob, signal) {
   let value = 0xffffffff;
