@@ -242,7 +242,7 @@ try {
         await page.reload();
         phase = 'vocabulary-and-personal-backup';
         const vocabularyOutput = new URL(`${name}-${viewport.width}-vocabulary/`, output); await mkdir(vocabularyOutput, { recursive: true });
-        await runVocabularyBrowser(page, { version, output: vocabularyOutput });
+        await runVocabularyBrowser(page, { version, output: vocabularyOutput, onPhase: value => { phase = value; } });
         if (name === 'chromium') {
           phase = 'offline-preconditions';
           // Cache readiness alone does not establish that this document is
@@ -294,10 +294,16 @@ try {
           const mediaState = await page.evaluate(() => {
             const audio = document.getElementById('audio');
             return { paused: audio.paused, ended: audio.ended, ready: audio.readyState, network: audio.networkState, time: audio.currentTime, duration: audio.duration,
-              error: audio.error?.code, translationHidden: document.getElementById('translation-panel').hidden,
+              error: audio.error?.code, errorMessage: audio.error?.message, sourceProtocol: audio.currentSrc.split(':')[0], translationHidden: document.getElementById('translation-panel').hidden,
               feedback: document.getElementById('player-feedback').textContent, events: window.__mediaEvents };
           }).catch(() => undefined);
-          failures.push(new Error(JSON.stringify({ browser: name, viewport, phase, mockedTranslations, offlineState, layoutState, sourceControlState, mediaState, message: error.message }), { cause: error }));
+          const fixtureState = await page.evaluate(async version => {
+            const storage = await import(`./storage.mjs?v=${version}`), blob = await storage.read('audio:fixture-track');
+            if (!(blob instanceof Blob)) return { missingAudio: true };
+            const bytes = new Uint8Array(await blob.arrayBuffer());
+            return { size: blob.size, type: blob.type, byteLength: bytes.length, header: [...bytes.slice(0, 12)].map(byte => byte.toString(16).padStart(2, '0')).join('') };
+          }, version).catch(failure => ({ readError: failure.message }));
+          failures.push(new Error(JSON.stringify({ browser: name, viewport, phase, mockedTranslations, offlineState, layoutState, sourceControlState, mediaState, fixtureState, message: error.message, stack: error.stack }), { cause: error }));
         } finally { await context.close(); }
       }
     } finally { await browser?.close(); }
