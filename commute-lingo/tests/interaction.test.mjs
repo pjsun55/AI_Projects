@@ -21,6 +21,15 @@ test('portrait-only gate ignores a portrait software keyboard and a landscape de
   assert.equal(isMobileLandscape({ coarse: true, orientationType: 'landscape-secondary' }), true);
   assert.equal(isMobileLandscape({ coarse: true, orientationAngle: 90 }), true);
 });
+test('tablets support both orientations while narrow phones keep their portrait gate', () => {
+  for (const [width, height] of [[800, 1280], [1280, 800], [600, 960], [960, 600]]) {
+    assert.equal(isMobileLandscape({ coarse: true, width, height, orientationType: 'landscape-primary' }), false);
+    assert.equal(isMobileLandscape({ coarse: true, width, height, orientationAngle: 90 }), false);
+    assert.equal(isMobileLandscape({ coarse: true, width, height }), false);
+  }
+  assert.equal(isMobileLandscape({ coarse: true, width: 874, height: 402, orientationType: 'landscape-primary' }), true);
+  assert.equal(isMobileLandscape({ coarse: true, width: 960, height: 599, orientationAngle: 90 }), true);
+});
 test('ZIP backup has real CRC, UTF-8 names, original audio bytes, and a valid central directory', async () => {
   assert.equal(await crc32(new Blob(['123456789'])), 0xcbf43926);
   const files = [{ name: 'audio/test.mp3', blob: new Blob([new Uint8Array([3, 1, 4, 1, 5])]) }, { name: '字幕.json', blob: new Blob(['{"text":"測試"}']) }];

@@ -20,6 +20,9 @@ export function longPress(element, action, { delay = 480, tolerance = 10, timers
 
 export function isMobileLandscape({ coarse, orientationType, orientationAngle, width, height }) {
   if (!coarse) return false;
+  // Screen dimensions stay stable when a keyboard or split window shrinks the
+  // viewport. Tablets use the responsive layout in either orientation.
+  if (Number.isFinite(width) && Number.isFinite(height) && Math.min(width, height) >= 600) return false;
   if (typeof orientationType === 'string') return orientationType.startsWith('landscape');
   if (typeof orientationAngle === 'number') return Math.abs(orientationAngle) === 90;
   return width > height;

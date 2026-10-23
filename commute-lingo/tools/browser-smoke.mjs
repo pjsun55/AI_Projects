@@ -5,6 +5,7 @@ import { mkdir, mkdtemp, readFile } from 'node:fs/promises';
 import { seedFixture } from './browser-fixture.mjs';
 import { runUpdateBrowser } from './update-browser.mjs';
 import { runReadingBrowser } from './reading-browser.mjs';
+import { runResponsiveBrowser } from './responsive-browser.mjs';
 import { runVocabularyBrowser } from './vocabulary-browser.mjs';
 import { createServer } from './server.mjs';
 const { version } = JSON.parse(await readFile(new URL('../package.json', import.meta.url)));
@@ -19,7 +20,7 @@ try {
   for (const [name, engine] of Object.entries({ chromium, webkit })) {
     const browser = name === 'webkit' ? null : await engine.launch();
     try {
-      for (const viewport of [{ width: 393, height: 852 }, { width: 320, height: 568 }]) {
+      for (const viewport of [{ width: 393, height: 852 }, { width: 320, height: 568 }, { width: 800, height: 1280 }, { width: 1280, height: 800 }]) {
         // WebKit's ephemeral data store rejects IndexedDB Blobs. Exercise the
         // ordinary persistent storage path using a fresh CI-only profile.
         // Profiles stay outside browser-results and are never uploaded.
@@ -61,6 +62,10 @@ try {
         await page.evaluate(seedFixture, { version });
         await page.reload();
         await page.waitForFunction(() => !document.getElementById('start-import').disabled && document.querySelector('#playlist-tracks .track-main'));
+        await expect(page.locator('#landscape-gate')).toBeHidden();
+        if (Math.min(viewport.width, viewport.height) >= 600) {
+          assert.ok(await page.locator('.app-shell').evaluate(element => element.getBoundingClientRect().width > 480), 'Tablet content must use the available width');
+        }
         assert.equal(await page.evaluate(() => getComputedStyle(document.documentElement).fontSize), '20px');
         assert.ok(Math.abs(await page.locator('#playlist-title').evaluate(element => parseFloat(getComputedStyle(element).fontSize)) - 35.2) < 0.05, 'Large headings must retain their original size');
         for (const tab of ['playlist', 'library', 'vocabulary', 'import', 'settings']) {
@@ -246,6 +251,9 @@ try {
         await runVocabularyBrowser(page, { version, output: vocabularyOutput, onPhase: value => { phase = value; } });
         const readingOutput = new URL(name + '-' + viewport.width + '-reading/', output); await mkdir(readingOutput, { recursive: true });
         await runReadingBrowser(page, { version, output: readingOutput, onPhase: value => { phase = value; } });
+        if (Math.min(viewport.width, viewport.height) >= 600) {
+          await runResponsiveBrowser(page, { viewport, output: readingOutput, onPhase: value => { phase = value; } });
+        }
         if (name === 'chromium') {
           phase = 'offline-preconditions';
           // Cache readiness alone does not establish that this document is

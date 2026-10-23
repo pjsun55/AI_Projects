@@ -32,6 +32,9 @@ jobs:
     needs: changes
     if: needs.changes.outputs.lab == 'true'
     runs-on: ubuntu-24.04
+    container:
+      image: mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
+      options: --shm-size=1g
     timeout-minutes: 20
     defaults:
       run:
@@ -45,7 +48,6 @@ jobs:
           node-version: '22'
       - run: npm ci
       - run: npm test
-      - run: npx playwright install --with-deps chromium webkit
       - run: npm run test:browser
       - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         if: ${{ !cancelled() }}
@@ -59,6 +61,9 @@ jobs:
     needs: changes
     if: needs.changes.outputs.commute == 'true'
     runs-on: ubuntu-24.04
+    container:
+      image: mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
+      options: --shm-size=1g
     timeout-minutes: 20
     defaults:
       run:
@@ -74,7 +79,6 @@ jobs:
       - run: npm test
       - name: Interaction and storage simulation
         run: node --experimental-vm-modules tools/ui-smoke.mjs
-      - run: npx playwright install --with-deps chromium webkit
       - run: npm run test:browser
       - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         if: ${{ !cancelled() }}

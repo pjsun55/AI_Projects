@@ -252,6 +252,11 @@ try {
   hidden = true; document.dispatchEvent(event('visibilitychange')); check(!audio.paused, 'backgrounding while listening does not programmatically pause audio'); hidden = false;
   screen.orientation.type = 'landscape-primary'; window.dispatchEvent(event('orientationchange')); check(!$('landscape-gate').hidden, 'mobile landscape shows portrait-only gate');
   screen.orientation.type = 'portrait-primary'; window.dispatchEvent(event('orientationchange')); check($('landscape-gate').hidden, 'portrait restores the app');
+  screen.width = 1280; screen.height = 800; screen.orientation.type = 'landscape-primary'; window.dispatchEvent(event('orientationchange'));
+  check($('landscape-gate').hidden && !$('app').inert, 'tablet landscape keeps the application available');
+  screen.width = 800; screen.height = 1280; screen.orientation.type = 'portrait-primary'; window.dispatchEvent(event('resize'));
+  check($('landscape-gate').hidden && !$('app').inert, 'tablet portrait and viewport changes remain available');
+  screen.width = 393; screen.height = 852;
   click('player-close'); await delay(10);
   check(!$('player').classList.contains('subtitles-open') && $('subtitles-panel').hidden, 'closing the player clears its expanded subtitle state');
   const albumCard = $('playlist-albums').children[0];

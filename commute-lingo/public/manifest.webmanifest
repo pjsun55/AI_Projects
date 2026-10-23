@@ -3,10 +3,10 @@
   "name": "通勤學語言 · CommuteLingo",
   "short_name": "通勤學語言",
   "lang": "zh-Hant",
-  "start_url": "./?v=0.2.16",
+  "start_url": "./?v=0.2.17",
   "scope": "./",
   "display": "standalone",
-  "orientation": "portrait",
+  "orientation": "any",
   "background_color": "#fbf8f5",
   "theme_color": "#fbf8f5",
   "icons": [

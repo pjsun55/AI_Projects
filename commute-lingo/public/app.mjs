@@ -1,17 +1,17 @@
-import { readingCues, activeWord } from './reading.mjs?v=0.2.16';
-import { formatTime, findActive, transcriptCoverage, sentenceTexts } from './core.mjs?v=0.2.16';
-import * as storage from './storage.mjs?v=0.2.16';
-import { createTranslator } from './translation.mjs?v=0.2.16';
-import { DEFAULT_SETTINGS, LIBRARY_KEY, emptyLibrary, validateSettings, title, tracksIn, addAlbum, removeAlbum, removeTrack, rename, placeTrack, changeSettings, libraryBytes, playbackQueue, sentenceTarget, sentencesFor, legacyLibrary, newId } from './library.mjs?v=0.2.16';
-import { importPodcast, importAudioFile, transcribeSavedAudio } from './source.mjs?v=0.2.16';
-import { icon, fillIcons } from './icons.mjs?v=0.2.16';
-import { longPress, isMobileLandscape } from './gestures.mjs?v=0.2.16';
-import { personalBackup, readPersonalBackup, planPersonalRestore } from './backup.mjs?v=0.2.16';
-import { VOCABULARY_KEY, LANGUAGES, WORD_STATUSES, emptyVocabulary, validateVocabulary, validateWord, normalizeWord, wordIdentity, addWord, editWord, needsLookup } from './vocabulary.mjs?v=0.2.16';
-import { lookupDictionary } from './dictionary.mjs?v=0.2.16';
-import { createSubtitleFollow, subtitleScrollTop, sentenceReadingParts, createAudioExcerpt } from './subtitles.mjs?v=0.2.16';
-import { createUpdater, reloadVersion } from './updates.mjs?v=0.2.16';
-import { holdScreenAwake } from './wake-lock.mjs?v=0.2.16';
+import { readingCues, activeWord } from './reading.mjs?v=0.2.17';
+import { formatTime, findActive, transcriptCoverage, sentenceTexts } from './core.mjs?v=0.2.17';
+import * as storage from './storage.mjs?v=0.2.17';
+import { createTranslator } from './translation.mjs?v=0.2.17';
+import { DEFAULT_SETTINGS, LIBRARY_KEY, emptyLibrary, validateSettings, title, tracksIn, addAlbum, removeAlbum, removeTrack, rename, placeTrack, changeSettings, libraryBytes, playbackQueue, sentenceTarget, sentencesFor, legacyLibrary, newId } from './library.mjs?v=0.2.17';
+import { importPodcast, importAudioFile, transcribeSavedAudio } from './source.mjs?v=0.2.17';
+import { icon, fillIcons } from './icons.mjs?v=0.2.17';
+import { longPress, isMobileLandscape } from './gestures.mjs?v=0.2.17';
+import { personalBackup, readPersonalBackup, planPersonalRestore } from './backup.mjs?v=0.2.17';
+import { VOCABULARY_KEY, LANGUAGES, WORD_STATUSES, emptyVocabulary, validateVocabulary, validateWord, normalizeWord, wordIdentity, addWord, editWord, needsLookup } from './vocabulary.mjs?v=0.2.17';
+import { lookupDictionary } from './dictionary.mjs?v=0.2.17';
+import { createSubtitleFollow, subtitleScrollTop, sentenceReadingParts, createAudioExcerpt } from './subtitles.mjs?v=0.2.17';
+import { createUpdater, reloadVersion } from './updates.mjs?v=0.2.17';
+import { holdScreenAwake } from './wake-lock.mjs?v=0.2.17';
 
 const $ = id => document.getElementById(id);
 const audio = $('audio');
@@ -33,7 +33,7 @@ const currentTrack = () => state.library.tracks.find(track => track.id === state
 const albumOf = track => state.library.albums.find(album => album.id === track?.albumId);
 const safe = action => (...args) => { try { return Promise.resolve(action(...args)).catch(error => notify(error.message, true)); } catch (error) { notify(error.message, true); } };
 const updater = createUpdater({
-  serviceWorker: navigator.serviceWorker, version: '0.2.16',
+  serviceWorker: navigator.serviceWorker, version: '0.2.17',
   isAuto: () => state.library.settings.autoUpdate,
   visible: () => !document.hidden,
   canUpdate: () => state.ready && audio.paused && !state.loadingAudio && !state.job && !state.pending && !state.writing && !state.clearing && !state.backup && !state.restoring && !state.wordLookup && !state.translation && !state.settingsDirty && !$('player').open && !$('action-dialog').open && !$('source-url').value.trim() && !state.file && !document.activeElement?.matches?.('input,select,textarea'),
@@ -334,7 +334,7 @@ function applyAppearance(settings) {
   document.documentElement.style.setProperty('--subtitle-size', { normal: '18.4px', large: '22.4px', xlarge: '27.2px' }[settings.subtitleSize]);
   $('brand-icon').src = `./icon-${settings.icon}.svg`; $('favicon').href = `./icon-${settings.icon}.svg`;
   $('touch-icon').href = `./icon-${settings.icon}-192.png`;
-  $('manifest').href = `./manifest-${settings.icon}.webmanifest?v=0.2.16`;
+  $('manifest').href = `./manifest-${settings.icon}.webmanifest?v=0.2.17`;
 }
 async function refreshStorage() {
   const total = libraryBytes(state.library);
@@ -848,6 +848,7 @@ async function clearAll() {
 function orientation() {
   const blocked = isMobileLandscape({ coarse: matchMedia('(pointer: coarse)').matches, orientationType: screen.orientation?.type, orientationAngle: typeof window.orientation === 'number' ? window.orientation : undefined, width: screen.width, height: screen.height });
   document.body.classList.toggle('is-landscape', blocked); $('landscape-gate').hidden = !blocked; $('app').inert = blocked;
+  if (!blocked && state.ready && !audio.paused) highlight(true);
 }
 
 fillIcons();
@@ -955,7 +956,7 @@ async function offlineStatus() {
     const check = () => {
       const channel = new MessageChannel();
       const timer = setTimeout(() => { channel.port1.close(); $('offline-status').textContent = '新版可在線使用；請在保存後關閉舊分頁再開啟，以更新離線頁面。'; }, 2000);
-      channel.port1.onmessage = ({ data }) => { clearTimeout(timer); channel.port1.close(); $('offline-status').textContent = data.version === '0.2.16' && data.ready ? '頁面已可離線使用；已收藏的音訊與快取翻譯可離線讀取，新匯入與新翻譯需要連線。' : '新版可在線使用，離線頁面尚待更新。'; };
+      channel.port1.onmessage = ({ data }) => { clearTimeout(timer); channel.port1.close(); $('offline-status').textContent = data.version === '0.2.17' && data.ready ? '頁面已可離線使用；已收藏的音訊與快取翻譯可離線讀取，新匯入與新翻譯需要連線。' : '新版可在線使用，離線頁面尚待更新。'; };
       registration.active?.postMessage({ type: 'CACHE_VERSION' }, [channel.port2]);
     };
     navigator.serviceWorker.addEventListener('controllerchange', check); check();

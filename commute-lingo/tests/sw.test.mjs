@@ -41,17 +41,17 @@ test('offline readiness requires every versioned asset, not just an active worke
   const f = await fixture(); let result;
   const message = () => f.run('message', { data: { type: 'CACHE_VERSION' }, ports: [{ postMessage: value => { result = value; } }] });
   await message(); assert.equal(result.ready, false);
-  await f.run('install'); await message(); assert.equal(result.version, '0.2.16'); assert.equal(result.ready, true);
+  await f.run('install'); await message(); assert.equal(result.version, '0.2.17'); assert.equal(result.ready, true);
   const store = [...f.stores.values()][0];
-  assert.ok(store.has(f.scope + '?v=0.2.16'));
-  store.delete(f.scope + 'decoder.mjs?v=0.2.16');
+  assert.ok(store.has(f.scope + '?v=0.2.17'));
+  store.delete(f.scope + 'decoder.mjs?v=0.2.17');
   await message(); assert.equal(result.ready, false);
 });
 test('versioned module requests are served from matching cache and other app paths pass through', async () => {
   const f = await fixture(); await f.run('install');
   let response;
-  f.handlers.get('fetch')({ request: { method: 'GET', url: f.scope + 'asr.mjs?v=0.2.16' }, respondWith: p => { response = p; } });
-  assert.equal((await response).asset, './asr.mjs?v=0.2.16');
+  f.handlers.get('fetch')({ request: { method: 'GET', url: f.scope + 'asr.mjs?v=0.2.17' }, respondWith: p => { response = p; } });
+  assert.equal((await response).asset, './asr.mjs?v=0.2.17');
   response = undefined;
   f.handlers.get('fetch')({ request: { method: 'GET', url: 'https://example.test/another-app/app.mjs' }, respondWith: p => { response = p; } });
   assert.equal(response, undefined);
@@ -60,16 +60,16 @@ test('navigation fragments reuse the cached document while unknown queries, othe
   const f = await fixture(); await f.run('install');
   for (const hash of ['#playlist', '#settings', '#library', '#vocabulary', '#import']) {
     let response;
-    const request = new Request(f.scope + '?v=0.2.16' + hash);
+    const request = new Request(f.scope + '?v=0.2.17' + hash);
     f.handlers.get('fetch')({ request, respondWith: value => { response = value; } });
     assert.ok(response, `Navigation ${hash} must be handled offline`);
-    assert.equal((await response).asset, './?v=0.2.16');
+    assert.equal((await response).asset, './?v=0.2.17');
   }
   for (const request of [
     new Request(f.scope + '?uncached-offline-probe=1#playlist'),
     new Request(f.scope + '?v=0.1.0#playlist'),
-    new Request('https://example.test/another-app/?v=0.2.16#playlist'),
-    new Request(f.scope + '?v=0.2.16#playlist', { method: 'POST' })
+    new Request('https://example.test/another-app/?v=0.2.17#playlist'),
+    new Request(f.scope + '?v=0.2.17#playlist', { method: 'POST' })
   ]) {
     let response;
     f.handlers.get('fetch')({ request, respondWith: value => { response = value; } });
