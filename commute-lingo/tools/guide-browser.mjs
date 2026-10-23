@@ -24,6 +24,15 @@ export async function runGuideBrowser(page, { version, output, onPhase = () => {
   };
   const pattern = 'https://generativelanguage.googleapis.com/**';
   await page.route(pattern, route);
+  onPhase('guide-removed-model-migration');
+  await page.evaluate(async version => {
+    const storage = await import(`./storage.mjs?v=${version}`), library = await storage.read('library-v2');
+    await storage.commitLibrary({ ...library, revision: library.revision + 1, settings: { ...library.settings, geminiModel: 'gemini-3.8-flash', autoGuide: true } }, { expectedRevision: library.revision });
+  }, version);
+  await page.reload(); await page.waitForFunction(() => !document.getElementById('start-import').disabled);
+  await expect(page.locator('#setting-gemini-model option')).toHaveCount(1);
+  await expect(page.locator('#setting-gemini-model')).toHaveValue('gemini-3.5-flash-lite');
+  assert.equal(requests, 0);
   onPhase('guide-encrypted-key');
   await page.locator('[data-tab="settings"]').click();
   await page.locator('#gemini-key').fill(key); await page.locator('#save-gemini-key').click();

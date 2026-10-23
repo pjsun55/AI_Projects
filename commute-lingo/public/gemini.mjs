@@ -1,5 +1,5 @@
-import { GUIDE_INSTRUCTION, GUIDE_SCHEMA, GUIDE_MAX_INPUT, validateGuide } from './guide.mjs?v=0.2.19';
-import { validateApiKey } from './key-vault.mjs?v=0.2.19';
+import { GUIDE_INSTRUCTION, GUIDE_SCHEMA, GUIDE_MAX_INPUT, GUIDE_MODEL, validateGuide } from './guide.mjs?v=0.2.20';
+import { validateApiKey } from './key-vault.mjs?v=0.2.20';
 
 export class GeminiError extends Error {
   constructor(code, status) {
@@ -11,7 +11,8 @@ export class GeminiError extends Error {
 // Exactly one request per invocation. Provider errors, keys and prompts are never logged.
 async function request({ key, model, text, signal, progress = () => {}, verify = false, fetchImpl = globalThis.fetch }) {
   validateApiKey(key);
-  if (!['gemini-3.5-flash-lite', 'gemini-3.8-flash'].includes(model) || typeof text !== 'string' || !text.trim() || text.length > GUIDE_MAX_INPUT || text.includes(key)) throw Error('導讀輸入格式或長度無效；每次最多 60,000 字元。');
+  if (model !== GUIDE_MODEL) throw Error('導讀模型不可用，請使用 3.5 Flash-Lite。');
+  if (typeof text !== 'string' || !text.trim() || text.length > GUIDE_MAX_INPUT || text.includes(key)) throw Error('導讀輸入格式或長度無效；每次最多 60,000 字元。');
   const controller = new AbortController(), cancel = () => controller.abort();
   signal?.addEventListener('abort', cancel, { once: true });
   const timer = setTimeout(cancel, verify ? 60000 : 180000);
@@ -21,7 +22,6 @@ async function request({ key, model, text, signal, progress = () => {}, verify =
     if (signal?.aborted) throw new GeminiError('CANCELLED');
     const generationConfig = { maxOutputTokens: verify ? 1024 : 8192 };
     if (!verify) { generationConfig.responseMimeType = 'application/json'; generationConfig.responseJsonSchema = GUIDE_SCHEMA; }
-    if (model === 'gemini-3.8-flash') generationConfig.thinkingConfig = { thinkingLevel: 'low' };
     progress('等待 Gemini 回應…');
     const response = await fetchImpl(`https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse`, {
       method: 'POST', credentials: 'omit', mode: 'cors', redirect: 'error', cache: 'no-store', referrerPolicy: 'no-referrer', signal: controller.signal,

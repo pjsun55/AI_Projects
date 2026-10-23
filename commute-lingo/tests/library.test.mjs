@@ -24,6 +24,12 @@ test('guide generation is manual for new, existing and restored automatic prefer
   assert.equal(validateSettings({ autoGuide: true }).autoGuide, false);
   assert.equal(changeSettings(emptyLibrary(), { autoGuide: true }).settings.autoGuide, false);
 });
+test('removed Flash model preferences migrate to Flash-Lite without an automatic guide', () => {
+  const settings = validateSettings({ geminiModel: 'gemini-3.8-flash', autoGuide: true, maxMinutes: 30 });
+  assert.equal(settings.geminiModel, 'gemini-3.5-flash-lite');
+  assert.equal(settings.autoGuide, false);
+  assert.equal(settings.maxMinutes, 30);
+});
 test('defaults and hard limits match the requested 3 albums / 3 per album / 25 minutes', () => {
   assert.deepEqual([DEFAULT_SETTINGS.albumLimit, DEFAULT_SETTINGS.trackLimit, DEFAULT_SETTINGS.maxMinutes], [3, 3, 25]);
   assert.doesNotThrow(() => validateSettings({ albumLimit: 5, trackLimit: 5, maxMinutes: 60 }));

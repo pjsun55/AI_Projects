@@ -1,4 +1,4 @@
-import { normalizeSegments, groupSentences } from './core.mjs?v=0.2.19';
+import { normalizeSegments, groupSentences } from './core.mjs?v=0.2.20';
 
 export const LIBRARY_KEY = 'library-v2';
 export const MAX_AUDIO_MINUTES = 60;
@@ -22,7 +22,8 @@ export function validateSettings(value) {
   settings.icon = 'sunrise'; // Retain old preference compatibility, with the chosen fixed identity.
   if (!['en', 'ja', 'ko', 'es', 'fr', 'de'].includes(settings.language) || !['tiny', 'base'].includes(settings.model)) throw new Error('轉錄設定無效。');
   if (typeof settings.autoUpdate !== 'boolean') throw new Error('自動更新設定無效。');
-  if (!['off', 'track', 'album'].includes(settings.repeatMode) || typeof settings.autoGuide !== 'boolean' || !['gemini-3.5-flash-lite', 'gemini-3.8-flash'].includes(settings.geminiModel)) throw new Error('播放模式或導讀設定無效。');
+  if (settings.geminiModel === 'gemini-3.8-flash') settings.geminiModel = 'gemini-3.5-flash-lite'; // Migrate removed model without losing local data.
+  if (!['off', 'track', 'album'].includes(settings.repeatMode) || typeof settings.autoGuide !== 'boolean' || settings.geminiModel !== 'gemini-3.5-flash-lite') throw new Error('播放模式或導讀設定無效。');
   settings.autoGuide = false; // Legacy preferences/backups adopt manual-only generation.
   // Only known preferences are persisted; credentials are never part of a library.
   return Object.fromEntries(Object.keys(DEFAULT_SETTINGS).map(key => [key, settings[key]]));

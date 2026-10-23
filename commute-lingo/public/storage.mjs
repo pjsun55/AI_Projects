@@ -1,4 +1,4 @@
-import { transcriptText } from './guide.mjs?v=0.2.19';
+import { transcriptText } from './guide.mjs?v=0.2.20';
 const DB_NAME = 'commute-lingo-v1';
 let connection;
 function database() {

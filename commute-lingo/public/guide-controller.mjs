@@ -1,8 +1,8 @@
-import * as storage from './storage.mjs?v=0.2.19';
-import { GEMINI_KEY, encryptApiKey, decryptApiKey } from './key-vault.mjs?v=0.2.19';
-import { generateGuide, verifyGeminiKey } from './gemini.mjs?v=0.2.19';
-import { transcriptText, guideAvailable, guideFingerprint, validateGuide } from './guide.mjs?v=0.2.19';
-import { normalizeWord, wordIdentity } from './vocabulary.mjs?v=0.2.19';
+import * as storage from './storage.mjs?v=0.2.20';
+import { GEMINI_KEY, encryptApiKey, decryptApiKey } from './key-vault.mjs?v=0.2.20';
+import { generateGuide, verifyGeminiKey } from './gemini.mjs?v=0.2.20';
+import { transcriptText, guideAvailable, guideFingerprint, validateGuide } from './guide.mjs?v=0.2.20';
+import { normalizeWord, wordIdentity } from './vocabulary.mjs?v=0.2.20';
 
 export function createGuideController({ getLibrary, getCurrent, getWords, saveWord, notify, openSettings, playQuote, broadcast, available = () => true }) {
   const $ = id => document.getElementById(id);

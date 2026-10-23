@@ -69,13 +69,13 @@ test('Key verification uses a fixed short prompt without the transcript or guide
   await verifyGeminiKey({ ...options(async (_, init) => {
     const body = JSON.parse(init.body); assert.equal(body.contents[0].parts[0].text, 'Please reply with OK.');
     assert.ok(!init.body.includes(source)); assert.equal(body.generationConfig.responseJsonSchema, undefined);
-    assert.equal(body.generationConfig.maxOutputTokens, 1024); assert.equal(body.generationConfig.thinkingConfig.thinkingLevel, 'low');
+    assert.equal(body.generationConfig.maxOutputTokens, 1024); assert.equal(body.generationConfig.thinkingConfig, undefined);
     return sse([frame('OK')]);
-  }), model: 'gemini-3.8-flash' });
+  }) });
 });
 test('invalid input makes no requests; provider errors never expose bodies or retry automatically', async () => {
   let calls = 0; const fetchImpl = async () => { calls++; throw Error(key); };
-  for (const override of [{ model: '../redirect' }, { text: ' ' }, { text: 'x'.repeat(GUIDE_MAX_INPUT + 1) }, { text: source + key }, { key: '' }]) await assert.rejects(generateGuide({ ...options(fetchImpl), ...override }));
+  for (const override of [{ model: '../redirect' }, { model: 'gemini-3.8-flash' }, { text: ' ' }, { text: 'x'.repeat(GUIDE_MAX_INPUT + 1) }, { text: source + key }, { key: '' }]) await assert.rejects(generateGuide({ ...options(fetchImpl), ...override }));
   assert.equal(calls, 0);
   for (const status of [400, 401, 403, 404, 429, 500]) {
     calls = 0;

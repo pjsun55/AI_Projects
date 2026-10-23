@@ -36,3 +36,12 @@ test('oversized, invalid, legacy ZIP and unexpected top-level content cannot be 
   const data = JSON.parse(await personalBackup(emptyLibrary().settings, vocabulary()).text()); data.audio = 'UNEXPECTED_BINARY';
   await assert.rejects(readPersonalBackup(new Blob([JSON.stringify(data)])), /非預期/);
 });
+
+test('restoring an old Flash preference selects Flash-Lite while preserving collected words', async () => {
+  const data = JSON.parse(await personalBackup(emptyLibrary().settings, vocabulary()).text());
+  data.settings.geminiModel = 'gemini-3.8-flash'; data.settings.autoGuide = true;
+  const parsed = await readPersonalBackup(new Blob([JSON.stringify(data)]));
+  assert.equal(parsed.settings.geminiModel, 'gemini-3.5-flash-lite');
+  assert.equal(parsed.settings.autoGuide, false);
+  assert.equal(parsed.vocabulary.words[0].word, 'resilience');
+});

@@ -1,4 +1,4 @@
-import { normalizeWord } from './vocabulary.mjs?v=0.2.19';
+import { normalizeWord } from './vocabulary.mjs?v=0.2.20';
 
 export const GUIDE_MODEL = 'gemini-3.5-flash-lite';
 export const GUIDE_PROMPT_VERSION = 1;
