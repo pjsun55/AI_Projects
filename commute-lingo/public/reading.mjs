@@ -1,4 +1,4 @@
-// Model anchors are retained verbatim. Display limits never invent word times.
+// Sentence cards retain the original text and model anchors verbatim.
 const clean = value => value.replace(/<[^>]*>/g, '').trim();
 const compact = value => value.replace(/\s+/gu, '');
 export function normalizeWordAnchors(input, cue) {
@@ -14,46 +14,19 @@ export function normalizeWordAnchors(input, cue) {
   if (words.some(word => !word.text) || compact(words.map(word => word.text).join('')) !== compact(cue.text)) throw new Error('逐字文字與原句不符。');
   return words;
 }
-export function readingPages(text, maximum = 40, count = 6) {
-  const pieces = text.match(/\S+\s*|\s+/gu) || [text], pages = []; let pending = '', units = 0;
-  for (const piece of pieces) {
-    // Very long unspaced text (including CJK) remains bounded without guessing times.
-    const parts = Array.from(piece).length > maximum ? piece.match(new RegExp('[\\s\\S]{1,' + Math.floor(maximum / 2) + '}', 'gu')) : [piece];
-    for (const part of parts) {
-      if (pending && (units >= count || Array.from(pending + part).length > maximum)) { pages.push(pending); pending = ''; units = 0; }
-      pending += part; units++;
-    }
-  }
-  if (pending) pages.push(pending);
-  return pages;
-}
-export function readingCues(cues, language = 'en') {
-  const result = [], separator = /^(ja|zh)/u.test(language) ? '' : ' ';
-  for (const cue of cues) {
+export function readingCues(cues) {
+  // sentencesFor already groups source fragments by sentence-ending punctuation.
+  // Width, word count and elapsed time must not split that sentence into cards.
+  return cues.map(cue => {
     let words;
     try { words = !cue.timingUncertain && !cue.inferredEnd ? normalizeWordAnchors(cue.words, cue) : undefined; } catch { words = undefined; }
-    if (!words) { result.push({ ...cue, words: undefined, pages: cue.text.length > 160 || cue.text.trim().split(/\s+/u).length > 24 ? readingPages(cue.text) : [cue.text] }); continue; }
-    const groups = []; let pending = [], length = 0, groupEnd = 0;
-    const flush = () => { if (pending.length) { groups.push(pending); pending = []; length = 0; groupEnd = 0; } };
-    for (const word of words) {
-      const last = pending.at(-1), start = pending[0]?.start;
-      if (last && groupEnd > start && word.start >= groupEnd && (pending.length >= 6 || length + word.text.length + 1 > (/^(ja|zh)/u.test(language) ? 24 : 40) || word.end - start > 4.5 && word.end - word.start <= 2.5 && last.end - last.start <= 2.5)) flush();
-      pending.push(word); length += word.text.length + separator.length; groupEnd = Math.max(groupEnd, word.end);
-    }
-    flush();
-    if (groups.length > 1 && groups.at(-1).every(word => word.end === word.start)) groups[groups.length - 2].push(...groups.pop());
-    for (const group of groups) {
-      const start = group[0].start, end = Math.max(...group.map(word => word.end)), text = group.map(word => word.text).join(separator);
-      if (!(end > start)) { result.push({ ...cue, words: undefined, pages: readingPages(cue.text) }); break; }
-      result.push({ ...cue, start, end, text, words: group, sourceText: cue.text, sourceStart: cue.start, sourceEnd: cue.end, pages: readingPages(text) });
-    }
-  }
-  return result;
+    return { ...cue, words };
+  });
 }
 export function activeWord(words, time) {
   if (!Array.isArray(words)) return -1;
   // Reject zero duration, overlapping or implausibly stretched anchors. Leave
-  // the short phrase visible instead of fabricating an interpolated cursor.
+  // the complete sentence visible instead of fabricating an interpolated cursor.
   for (let i = words.length - 1; i >= 0; i--) {
     const word = words[i];
     if (word.start > time) continue;

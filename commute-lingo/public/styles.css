@@ -87,5 +87,5 @@ dialog{color:#29202f;border:0;padding:0;max-width:480px;width:100%;box-shadow:0 
 .action-sheet textarea{resize:vertical;min-height:95px;font:inherit;font-size:.85rem;line-height:1.6}.action-sheet #word-tags{font-size:.8rem}
 .tabbar button{min-width:0;font-size:.56rem}.tabbar button.active>span:first-child{padding-inline:10px;margin-inline:-10px}
 
-/* A short reading unit stays normal-weight; only a usable model word is emphasized. */
-.reading-word.spoken-word{font-weight:750;color:#773d13;background:#f6d39c;border-radius:4px;box-decoration-break:clone;-webkit-box-decoration-break:clone}.reading-pages{display:flex;align-items:center;justify-content:space-between;gap:4px;padding:0 8px 4px;font-size:.6rem}.reading-pages button{min-height:44px;padding:4px 6px;color:var(--accent)}.reading-pages span{white-space:nowrap}.reading-timing-note{line-height:1.45}
+/* Complete sentence cards wrap naturally; only a usable model word is emphasized. */
+.reading-word.spoken-word{font-weight:750;color:#773d13;background:#f6d39c;border-radius:4px;box-decoration-break:clone;-webkit-box-decoration-break:clone}

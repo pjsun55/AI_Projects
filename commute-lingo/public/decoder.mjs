@@ -1,5 +1,5 @@
-import { decodeMP3 } from './decode.mjs?v=0.2.15';
-import { checkDecodedAudio, formatTime } from './core.mjs?v=0.2.15';
+import { decodeMP3 } from './decode.mjs?v=0.2.16';
+import { checkDecodedAudio, formatTime } from './core.mjs?v=0.2.16';
 
 self.onmessage = async ({ data }) => {
   if (data.type !== 'decode') return;

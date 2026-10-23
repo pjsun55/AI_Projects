@@ -211,15 +211,11 @@ try {
   click('toggle-subtitles');
   const cue = $('subtitle-list').children[0].querySelector('.sentence-text');
   const completeFirstCue = fixtureSentence + ' We learn one idea at a time.';
-  const pageNext = $('subtitle-list').children[0].querySelector('.reading-pages button:last-child'), pagePrevious = $('subtitle-list').children[0].querySelector('.reading-pages button:first-child');
-  const displayed = [cue.textContent], pageTime = audio.currentTime;
-  while (!pageNext.disabled) { pageNext.click(); displayed.push(cue.textContent); }
-  check(displayed.join(' ').replace(/\s+/gu, ' ') === completeFirstCue && displayed.every(text => Array.from(text).length <= 40) && audio.currentTime === pageTime, 'legacy long subtitles page without losing words, inventing time or seeking audio');
-  while (!pagePrevious.disabled) pagePrevious.click();
+  check(cue.textContent === completeFirstCue && !$('subtitle-list').querySelector('.reading-pages'), 'legacy long subtitles display the complete original text in one card without pagination');
   cue.dispatchEvent(event('pointerdown', { button: 0, clientX: 10, clientY: 10 }));
   await until(() => !$('translation-panel').hidden && $('translation-text').textContent, 'long-press translation');
   check(audio.paused && translated === 1, 'long press pauses playback and translates the selected sentence');
-  check(translatedTexts[0] === completeFirstCue && $('translation-original').textContent === completeFirstCue && cue.classList.contains('translating') && !cue.nextElementSibling.classList.contains('translating'), 'long-pressing any clause translates and marks only its complete sentence');
+  check(translatedTexts[0] === completeFirstCue && $('translation-original').textContent === completeFirstCue && cue.classList.contains('translating') && !$('subtitle-list').children[1].querySelector('.sentence-text').classList.contains('translating'), 'long-pressing a card translates and marks only its complete original text');
   cue.dispatchEvent(event('click'));
   check(audio.paused && !$('translation-panel').hidden, 'the click after a long press never seeks or resumes playback');
   const translationModule = (await load(new URL(`../public/translation.mjs?v=${version}`, import.meta.url).href)).namespace;
