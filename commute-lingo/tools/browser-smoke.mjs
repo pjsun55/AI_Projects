@@ -7,6 +7,7 @@ import { runUpdateBrowser } from './update-browser.mjs';
 import { runReadingBrowser } from './reading-browser.mjs';
 import { runResponsiveBrowser } from './responsive-browser.mjs';
 import { runVocabularyBrowser } from './vocabulary-browser.mjs';
+import { runGuideBrowser } from './guide-browser.mjs';
 import { createServer } from './server.mjs';
 const { version } = JSON.parse(await readFile(new URL('../package.json', import.meta.url)));
 const basePath = '/AI_Projects/commute-lingo/';
@@ -144,7 +145,7 @@ try {
           await page.locator('#toggle-subtitles').click();
           const layout = await page.evaluate(() => {
             const sheet = document.getElementById('player'), list = document.getElementById('subtitle-list'), rect = sheet.getBoundingClientRect();
-            const controls = ['player-close', 'player-menu', 'playback-range', 'previous-sentence', 'player-play', 'next-sentence', 'playback-speed', 'player-stop', 'toggle-subtitles', 'follow-subtitles'];
+            const controls = ['player-close', 'player-menu', 'playback-range', 'previous-sentence', 'player-play', 'next-sentence', 'playback-speed', 'player-stop', 'playback-repeat', 'toggle-subtitles', 'toggle-guide', 'follow-subtitles'];
             return { top: rect.top, bottom: rect.bottom, height: innerHeight, listHeight: list.clientHeight, overflow: sheet.scrollHeight - sheet.clientHeight, artwork: getComputedStyle(document.getElementById('player-art')).display,
               controlsVisible: controls.every(id => { const r = document.getElementById(id).getBoundingClientRect(); return r.width > 0 && r.height > 0 && r.top >= rect.top && r.bottom <= rect.bottom + 1 && r.left >= rect.left && r.right <= rect.right + 1; }) };
           });
@@ -249,6 +250,8 @@ try {
         phase = 'vocabulary-and-personal-backup';
         const vocabularyOutput = new URL(`${name}-${viewport.width}-vocabulary/`, output); await mkdir(vocabularyOutput, { recursive: true });
         await runVocabularyBrowser(page, { version, output: vocabularyOutput, onPhase: value => { phase = value; } });
+        const guideOutput = new URL(name + '-' + viewport.width + '-guide/', output); await mkdir(guideOutput, { recursive: true });
+        await runGuideBrowser(page, { version, output: guideOutput, onPhase: value => { phase = value; } });
         const readingOutput = new URL(name + '-' + viewport.width + '-reading/', output); await mkdir(readingOutput, { recursive: true });
         await runReadingBrowser(page, { version, output: readingOutput, onPhase: value => { phase = value; } });
         if (Math.min(viewport.width, viewport.height) >= 600) {
@@ -296,6 +299,12 @@ try {
           await page.waitForFunction(() => document.querySelector('#playlist-tracks .track-main'));
           const uncachedFailed = await page.evaluate(() => fetch('./index.html?uncached-offline-probe=1').then(() => false, () => true));
           assert.equal(uncachedFailed, true, 'An uncached network request must fail while offline.');
+          await page.locator('#playlist-tracks .track-main').first().click();
+          await page.locator('#toggle-guide').click();
+          await expect(page.locator('.guide-save-word')).toHaveCount(1);
+          await expect(page.locator('#generate-guide')).toBeDisabled();
+          await expect(page.locator('#guide-status')).toContainText('可離線閱讀');
+          await page.locator('#player-close').click(); await page.locator('#audio').evaluate(audio => audio.pause());
           console.log(JSON.stringify({ browser: name, offlineReload: 'PASS', scope }));
         }
         assert.deepEqual(errors, []);

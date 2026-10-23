@@ -1,3 +1,4 @@
+import { transcriptText } from './guide.mjs?v=0.2.18';
 const DB_NAME = 'commute-lingo-v1';
 let connection;
 function database() {
@@ -39,6 +40,7 @@ export async function clear() {
   return new Promise((resolve, reject) => {
     const tx = db.transaction('data', 'readwrite');
     tx.objectStore('data').clear();
+    tx.objectStore('data').put(crypto.randomUUID(), 'data-generation-v1');
     tx.oncomplete = () => resolve();
     tx.onabort = tx.onerror = () => reject(tx.error ?? new Error('清除失敗。'));
   });
@@ -55,7 +57,7 @@ export async function commitLibrary(library, { expectedRevision, audio, removeId
     request.onsuccess = () => {
       try {
         if ((request.result?.revision ?? 0) !== expectedRevision) throw new Error('另一個分頁已更新資料，請重新整理後再試。');
-        for (const id of removeIds) { store.delete(`audio:${id}`); store.delete(`progress:${id}`); }
+        for (const id of removeIds) { store.delete(`audio:${id}`); store.delete(`progress:${id}`); store.delete(`guide:${id}`); }
         store.put(library, 'library-v2');
         if (audio) store.put(audio.blob, `audio:${audio.id}`);
         if (removeSession) store.delete('session');
@@ -63,6 +65,77 @@ export async function commitLibrary(library, { expectedRevision, audio, removeId
     };
     tx.oncomplete = () => resolve();
     tx.onabort = tx.onerror = () => reject(failure ?? tx.error ?? new Error('儲存失敗，可能空間不足；原有音訊已保留。'));
+  });
+}
+
+// Active-player identity prevents an old save from undoing Stop/dismiss.
+export async function savePlayer(snapshot, { activate = false, dismiss = false } = {}) {
+  const db = await database();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('data', 'readwrite'), store = tx.objectStore('data');
+    const library = store.get('library-v2'), player = store.get('player-v2'); let ready = 0, saved = false;
+    const check = () => {
+      if (++ready !== 2 || !library.result?.tracks.some(track => track.id === snapshot.trackId)) return;
+      if (!activate && player.result?.sessionId !== snapshot.sessionId) return;
+      store.put({ position: snapshot.position }, `progress:${snapshot.trackId}`);
+      store.put(dismiss ? null : snapshot, 'player-v2'); saved = true;
+    };
+    library.onsuccess = player.onsuccess = check;
+    tx.oncomplete = () => resolve(saved); tx.onabort = tx.onerror = () => reject(new Error('播放進度無法保存。'));
+  });
+}
+
+export async function dataGeneration() {
+  const db = await database();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('data', 'readwrite'), store = tx.objectStore('data'); let generation;
+    const request = store.get('data-generation-v1');
+    request.onsuccess = () => { generation = request.result || crypto.randomUUID(); if (!request.result) store.put(generation, 'data-generation-v1'); };
+    tx.oncomplete = () => resolve(generation); tx.onabort = tx.onerror = () => reject(new Error('無法讀取資料狀態。'));
+  });
+}
+export async function setGeminiKey(record, expectedGeneration) {
+  const db = await database();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('data', 'readwrite'), store = tx.objectStore('data');
+    const generation = store.get('data-generation-v1');
+    generation.onsuccess = () => {
+      if (!expectedGeneration || generation.result !== expectedGeneration) { tx.abort(); return; }
+      if (record) store.put(record, 'gemini-key-v1'); else store.delete('gemini-key-v1');
+      const cursor = store.openCursor();
+      cursor.onsuccess = () => {
+        const item = cursor.result; if (!item) return;
+        if (typeof item.key === 'string' && item.key.startsWith('guide:') && item.value?.status === 'running') item.update({ ...item.value, status: 'failed', request: null, error: 'Key 已變更，請手動重新產生。' });
+        item.continue();
+      };
+    };
+    tx.oncomplete = () => resolve(); tx.onabort = tx.onerror = () => reject(new Error('Key 保存未完成，請稍後重試。'));
+  });
+}
+
+// Claim and complete using one IDB transaction each: no duplicate tab requests,
+// and deleted/changed transcripts or keys cannot be resurrected by late replies.
+export async function updateGuide(id, { action, source, fingerprint, keyId, requestId, model, content, usage, error, automatic = false, force = false }) {
+  const db = await database();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('data', 'readwrite'), store = tx.objectStore('data'); let ready = 0, result = { changed: false };
+    const library = store.get('library-v2'), key = store.get('gemini-key-v1'), current = store.get(`guide:${id}`);
+    const check = () => {
+      if (++ready !== 3) return;
+      const track = library.result?.tracks.find(item => item.id === id), previous = current.result;
+      result.record = previous;
+      if (!track || transcriptText(track) !== source || key.result?.id !== keyId) return;
+      if (action === 'claim') {
+        if (automatic && !library.result.settings.autoGuide || !force && previous?.status === 'ready' && previous.fingerprint === fingerprint || previous?.status === 'running' && previous.request?.fingerprint === fingerprint && Date.now() - previous.request?.startedAt < 190000) return;
+        result.record = { ...previous, status: 'running', request: { id: requestId, fingerprint, keyId, startedAt: Date.now(), model }, error: '' };
+      } else {
+        if (previous?.request?.id !== requestId) return;
+        result.record = action === 'complete' ? { status: 'ready', fingerprint, content, usage, model, createdAt: Date.now(), request: null } : { ...previous, status: 'failed', request: null, error };
+      }
+      store.put(result.record, `guide:${id}`); result.changed = true;
+    };
+    library.onsuccess = key.onsuccess = current.onsuccess = check;
+    tx.oncomplete = () => resolve(result); tx.onabort = tx.onerror = () => reject(new Error('導讀儲存未完成，原有收藏已保留。'));
   });
 }
 

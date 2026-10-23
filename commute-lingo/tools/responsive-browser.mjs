@@ -16,7 +16,7 @@ export async function runResponsiveBrowser(page, { viewport, output, onPhase = (
       await expect(page.locator('#landscape-gate')).toBeHidden();
       await expect.poll(() => page.evaluate(() => {
         const player = document.getElementById('player'), bounds = player.getBoundingClientRect();
-        const controls = ['player-close', 'playback-range', 'previous-sentence', 'player-play', 'next-sentence', 'playback-speed', 'toggle-subtitles', 'follow-subtitles'];
+        const controls = ['player-close', 'playback-range', 'previous-sentence', 'player-play', 'next-sentence', 'playback-speed', 'playback-repeat', 'toggle-subtitles', 'toggle-guide', 'follow-subtitles'];
         return document.documentElement.scrollWidth <= innerWidth + 1 && bounds.top >= -1 && bounds.bottom <= innerHeight + 1 && bounds.left >= -1 && bounds.right <= innerWidth + 1 && player.scrollHeight <= player.clientHeight + 1 && document.getElementById('subtitle-list').clientHeight >= 100 && controls.every(id => {
           const r = document.getElementById(id).getBoundingClientRect();
           return r.width > 0 && r.height >= (id === 'playback-range' ? 24 : 44) && r.top >= bounds.top && r.bottom <= bounds.bottom + 1 && r.left >= bounds.left && r.right <= bounds.right + 1;

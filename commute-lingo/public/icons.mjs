@@ -1,4 +1,6 @@
 const paths = {
+  repeat: '<path d="m16 3 4 4-4 4M4 11V9a2 2 0 0 1 2-2h14M8 21l-4-4 4-4m12 0v2a2 2 0 0 1-2 2H4"/>',
+  book: '<path d="M12 5c-3-2-7-2-10-1v15c3-1 7-1 10 1 3-2 7-2 10-1V4c-3-1-7-1-10 1ZM12 5v15"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   play: '<path d="m8 4 12 8-12 8Z"/>', pause: '<path d="M7 4h3v16H7zM15 4h3v16h-3z"/>',
   stop: '<rect x="5" y="5" width="14" height="14" rx="3"/>',

@@ -1,17 +1,19 @@
-import { readingCues, activeWord } from './reading.mjs?v=0.2.17';
-import { formatTime, findActive, transcriptCoverage, sentenceTexts } from './core.mjs?v=0.2.17';
-import * as storage from './storage.mjs?v=0.2.17';
-import { createTranslator } from './translation.mjs?v=0.2.17';
-import { DEFAULT_SETTINGS, LIBRARY_KEY, emptyLibrary, validateSettings, title, tracksIn, addAlbum, removeAlbum, removeTrack, rename, placeTrack, changeSettings, libraryBytes, playbackQueue, sentenceTarget, sentencesFor, legacyLibrary, newId } from './library.mjs?v=0.2.17';
-import { importPodcast, importAudioFile, transcribeSavedAudio } from './source.mjs?v=0.2.17';
-import { icon, fillIcons } from './icons.mjs?v=0.2.17';
-import { longPress, isMobileLandscape } from './gestures.mjs?v=0.2.17';
-import { personalBackup, readPersonalBackup, planPersonalRestore } from './backup.mjs?v=0.2.17';
-import { VOCABULARY_KEY, LANGUAGES, WORD_STATUSES, emptyVocabulary, validateVocabulary, validateWord, normalizeWord, wordIdentity, addWord, editWord, needsLookup } from './vocabulary.mjs?v=0.2.17';
-import { lookupDictionary } from './dictionary.mjs?v=0.2.17';
-import { createSubtitleFollow, subtitleScrollTop, sentenceReadingParts, createAudioExcerpt } from './subtitles.mjs?v=0.2.17';
-import { createUpdater, reloadVersion } from './updates.mjs?v=0.2.17';
-import { holdScreenAwake } from './wake-lock.mjs?v=0.2.17';
+import { readingCues, activeWord } from './reading.mjs?v=0.2.18';
+import { formatTime, findActive, transcriptCoverage, sentenceTexts } from './core.mjs?v=0.2.18';
+import * as storage from './storage.mjs?v=0.2.18';
+import { createTranslator } from './translation.mjs?v=0.2.18';
+import { DEFAULT_SETTINGS, LIBRARY_KEY, emptyLibrary, validateSettings, title, tracksIn, addAlbum, removeAlbum, removeTrack, rename, placeTrack, changeSettings, libraryBytes, playbackQueue, nextPlayback, sentenceTarget, sentencesFor, legacyLibrary, newId } from './library.mjs?v=0.2.18';
+import { createGuideController } from './guide-controller.mjs?v=0.2.18';
+import { guideAudioRange } from './guide.mjs?v=0.2.18';
+import { importPodcast, importAudioFile, transcribeSavedAudio } from './source.mjs?v=0.2.18';
+import { icon, fillIcons } from './icons.mjs?v=0.2.18';
+import { longPress, isMobileLandscape } from './gestures.mjs?v=0.2.18';
+import { personalBackup, readPersonalBackup, planPersonalRestore } from './backup.mjs?v=0.2.18';
+import { VOCABULARY_KEY, LANGUAGES, WORD_STATUSES, emptyVocabulary, validateVocabulary, validateWord, normalizeWord, wordIdentity, addWord, editWord, needsLookup } from './vocabulary.mjs?v=0.2.18';
+import { lookupDictionary } from './dictionary.mjs?v=0.2.18';
+import { createSubtitleFollow, subtitleScrollTop, sentenceReadingParts, createAudioExcerpt } from './subtitles.mjs?v=0.2.18';
+import { createUpdater, reloadVersion } from './updates.mjs?v=0.2.18';
+import { holdScreenAwake } from './wake-lock.mjs?v=0.2.18';
 
 const $ = id => document.getElementById(id);
 const audio = $('audio');
@@ -22,6 +24,7 @@ const translationAudio = createAudioExcerpt({ audio, onChange: playing => {
   $('translation-play').setAttribute('aria-pressed', String(playing));
 } });
 let messageTimer, readingTimer;
+let progressChain = Promise.resolve(), playerSession = null;
 function refreshReadingClock() {
   clearTimeout(readingTimer); readingTimer = undefined;
   if (audio.paused || document.hidden || !$('player').open || $('subtitles-panel').hidden) return;
@@ -33,10 +36,10 @@ const currentTrack = () => state.library.tracks.find(track => track.id === state
 const albumOf = track => state.library.albums.find(album => album.id === track?.albumId);
 const safe = action => (...args) => { try { return Promise.resolve(action(...args)).catch(error => notify(error.message, true)); } catch (error) { notify(error.message, true); } };
 const updater = createUpdater({
-  serviceWorker: navigator.serviceWorker, version: '0.2.17',
+  serviceWorker: navigator.serviceWorker, version: '0.2.18',
   isAuto: () => state.library.settings.autoUpdate,
   visible: () => !document.hidden,
-  canUpdate: () => state.ready && audio.paused && !state.loadingAudio && !state.job && !state.pending && !state.writing && !state.clearing && !state.backup && !state.restoring && !state.wordLookup && !state.translation && !state.settingsDirty && !$('player').open && !$('action-dialog').open && !$('source-url').value.trim() && !state.file && !document.activeElement?.matches?.('input,select,textarea'),
+  canUpdate: () => state.ready && audio.paused && !guides.busy && !$('gemini-key').value && !state.loadingAudio && !state.job && !state.pending && !state.writing && !state.clearing && !state.backup && !state.restoring && !state.wordLookup && !state.translation && !state.settingsDirty && !$('player').open && !$('action-dialog').open && !$('source-url').value.trim() && !state.file && !document.activeElement?.matches?.('input,select,textarea'),
   prepare: async () => { await saveProgress({ strict: true }); await storage.read(LIBRARY_KEY); },
   lock: locked => { state.updating = locked; $('app').inert = locked; },
   render: ({ text, waiting, applying, checking }) => {
@@ -52,6 +55,18 @@ function notify(message, error = false) {
   messageTimer = setTimeout(() => { $('global-message').hidden = true; }, error ? 11000 : 6500);
 }
 const translator = createTranslator({ load: key => storage.read(`translation:${key}`), save: (key, entry) => storage.write(`translation:${key}`, entry), warn: message => notify(message, true) });
+const guides = createGuideController({
+  getLibrary: () => state.library, getCurrent: currentTrack, getWords: () => state.vocabulary,
+  available: () => state.ready && !state.updating && !state.clearing && !state.restoring && !state.writing,
+  saveWord: async entry => { await commitWords(addWord(state.vocabulary, entry)); notify(`已收藏「${entry.word}」。`); },
+  notify, openSettings: () => { if ($('player').open) closeDialog($('player')); showView('settings'); },
+  playQuote: async quote => {
+    const cue = guideAudioRange(state.sentences, quote);
+    if (!cue) { notify('這個引句尚無可用的字幕時間，請從原文字幕選擇播放。'); return; }
+    closeTranslation(); await translationAudio.start(cue);
+  },
+  broadcast: type => state.channel?.postMessage({ type })
+});
 function node(tag, className, text) { const element = document.createElement(tag); if (className) element.className = className; if (text !== undefined) element.textContent = text; return element; }
 function button(label, className, action, symbol) {
   const element = node('button', className, symbol ? undefined : label); element.type = 'button';
@@ -115,8 +130,10 @@ function render() {
   renderWriteControls();
   $('legacy-backup').hidden = !state.legacy;
   updatePlayer(); refreshStorage();
+  guides.render();
 }
 function renderWriteControls() {
+  guides.updateControls();
   const disabled = !state.ready || state.restoring || state.writing;
   $('restore-backup').disabled = disabled;
   $('restore-backup-button').disabled = disabled;
@@ -175,8 +192,9 @@ function renderLibrary() {
 function renderSettings() {
   if (state.settingsDirty) return;
   const settings = state.library.settings;
-  for (const [id, value] of [['setting-albums', settings.albumLimit], ['setting-tracks', settings.trackLimit], ['setting-minutes', settings.maxMinutes], ['setting-subtitles', settings.subtitleSize], ['setting-language', settings.language], ['setting-model', settings.model]]) $(id).value = value;
+  for (const [id, value] of [['setting-albums', settings.albumLimit], ['setting-tracks', settings.trackLimit], ['setting-minutes', settings.maxMinutes], ['setting-subtitles', settings.subtitleSize], ['setting-language', settings.language], ['setting-model', settings.model], ['setting-gemini-model', settings.geminiModel]]) $(id).value = value;
   $('setting-auto-update').checked = settings.autoUpdate;
+  $('setting-auto-guide').checked = settings.autoGuide;
   applyAppearance(settings);
 }
 async function commitWords(next) {
@@ -188,7 +206,7 @@ async function commitWords(next) {
   try {
     await storage.commitVocabulary(next, { expectedRevision, expectedGeneration: state.vocabulary.generation });
     state.vocabulary = next; renderVocabulary(); renderWordSelection();
-    state.channel?.postMessage({ type: 'words-changed' });
+    state.channel?.postMessage({ type: 'words-changed' }); guides.render();
   } finally { state.writing = false; renderWriteControls(); renderWordSelection(); }
 }
 function cancelWordLookup() {
@@ -315,7 +333,7 @@ async function editWordDetails(id) {
         }
         dictionary.append(credit); root.append(dictionary);
       }
-      root.append(node('p', 'small muted', word.translationSource === 'mymemory' ? '中文為 MyMemory 翻譯，可依原意修訂。' : '中文解釋與筆記由你整理；不會因音檔刪除而消失。'));
+      root.append(node('p', 'small muted', word.translationSource === 'gemini' ? '中文與原句來自 Gemini 導讀，可自行修訂。' : word.translationSource === 'mymemory' ? '中文為 MyMemory 翻譯，可依原意修訂。' : '中文解釋與筆記由你整理；不會因音檔刪除而消失。'));
     }, accept: async () => { await commitWords(editWord(state.vocabulary, id, { translation: translation.value, tags: tags.value, status: status.value, starred: starred.checked, note: note.value })); notify('單字已更新。'); }
   });
 }
@@ -334,7 +352,7 @@ function applyAppearance(settings) {
   document.documentElement.style.setProperty('--subtitle-size', { normal: '18.4px', large: '22.4px', xlarge: '27.2px' }[settings.subtitleSize]);
   $('brand-icon').src = `./icon-${settings.icon}.svg`; $('favicon').href = `./icon-${settings.icon}.svg`;
   $('touch-icon').href = `./icon-${settings.icon}-192.png`;
-  $('manifest').href = `./manifest-${settings.icon}.webmanifest?v=0.2.17`;
+  $('manifest').href = `./manifest-${settings.icon}.webmanifest?v=0.2.18`;
 }
 async function refreshStorage() {
   const total = libraryBytes(state.library);
@@ -522,6 +540,7 @@ async function regenerateTranscript(id) {
     $('import-progress').hidden = true; showView('playlist');
     if (state.current === id) openPlayer();
     notify(transcript.transcriptStatus === 'partial' ? transcriptSummary(transcript) : '已使用保存的音訊重新產生字幕，沒有重新下載音檔。');
+    if (transcript.transcriptStatus === 'complete') guides.start(id, { automatic: true });
   } catch (error) {
     if (epoch === state.epoch) { state.job = null; setImportProgress({ message: `${error.name === 'AbortError' ? '字幕更新已停止。' : error.message} 原有音訊與字幕已保留。`, error: true }); }
   } finally { await awake.release(); }
@@ -558,6 +577,7 @@ async function finishImport() {
       if (replaceTrack && !replaceTrack.value) throw new Error('請選擇要替換的音訊。');
       next = placeTrack(next, { ...pending.track, title: name.value }, albumId, replaceTrack?.value);
       await commit(next, { audio: { id: pending.track.id, blob: pending.blob } });
+      if (pending.track.transcriptStatus === 'complete') guides.start(pending.track.id, { automatic: true });
       state.pending = null; return true;
     }
   });
@@ -639,6 +659,7 @@ function centerCue(row) {
   root.scrollTo({ top: subtitleScrollTop({ scrollTop: root.scrollTop, scrollHeight: root.scrollHeight, clientHeight: root.clientHeight, clientTop: root.clientTop, containerTop: root.getBoundingClientRect().top, cueTop: row.getBoundingClientRect().top }), behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
 }
 function setSubtitlesVisible(show) {
+  if (show) { $('guide-panel').hidden = true; $('toggle-guide').setAttribute('aria-pressed', 'false'); $('player').classList.remove('guide-open'); }
   $('subtitles-panel').hidden = !show;
   $('toggle-subtitles').setAttribute('aria-pressed', String(show));
   $('player').classList.toggle('subtitles-open', show);
@@ -646,11 +667,21 @@ function setSubtitlesVisible(show) {
   if (show) { subtitleFollow.resume(); refreshReadingClock(); }
   else { clearTimeout(readingTimer); closeTranslation(); subtitleFollow.reset(); }
 }
-function resetSubtitles() { setSubtitlesVisible(false); }
+function setGuideVisible(show) {
+  if (show) setSubtitlesVisible(false);
+  else closeTranslation();
+  $('guide-panel').hidden = !show; $('toggle-guide').setAttribute('aria-pressed', String(show));
+  $('player').classList.toggle('guide-open', show);
+  $('player').classList.toggle('subtitles-open', show || !$('subtitles-panel').hidden);
+  $('player').scrollTop = 0;
+  if (show) void guides.refresh().catch(error => notify(error.message, true));
+}
+function resetSubtitles() { setSubtitlesVisible(false); setGuideVisible(false); }
 function openPlayer() { if (!currentTrack()) return; if (!$('player').open) openDialog($('player')); subtitleFollow.resume(); }
 function releasePlayer() {
   state.playerToken++; closeTranslation(); audio.pause(); audio.removeAttribute('src'); audio.load();
   state.current = null; state.queue = []; state.sentences = []; resetSubtitles();
+  playerSession = null;
   if ($('player').open) closeDialog($('player'));
   for (const url of state.urls.values()) URL.revokeObjectURL(url); state.urls.clear();
   if ('mediaSession' in navigator) { navigator.mediaSession.metadata = null; navigator.mediaSession.playbackState = 'none'; }
@@ -677,6 +708,7 @@ async function selectTrack(id, { queue = [id], autoplay = false, expand = false,
     if (token !== state.playerToken) return;
     const saved = position === undefined && !reuse ? await storage.read(`progress:${id}`) : null; if (token !== state.playerToken) return;
     state.current = id; state.queue = queue.filter(item => state.library.tracks.some(track => track.id === item));
+    const sessionId = crypto.randomUUID(); playerSession = sessionId;
     state.sentences = readingCues(sentencesFor(track), track.language); if (!reuse) audio.src = url; audio.playbackRate = +$('playback-speed').value;
     const resumeAt = position ?? livePosition ?? saved?.position ?? track.position ?? 0;
     const start = resumeAt >= track.duration - 1 ? 0 : Math.max(0, Math.min(track.duration - 0.1, resumeAt));
@@ -684,13 +716,19 @@ async function selectTrack(id, { queue = [id], autoplay = false, expand = false,
     if (!reuse || position !== undefined || audio.ended) { audio.onloadedmetadata = seek; if (audio.readyState >= 1) seek(); }
     renderSubtitles(); updatePlayer(); renderPlaylist(); updateMediaSession();
     if (expand) openPlayer();
+    const snapshot = { sessionId, trackId: id, queue: [...state.queue], position: start, speed: audio.playbackRate };
+    progressChain = progressChain.catch(() => {}).then(() => token === state.playerToken && playerSession === sessionId ? storage.savePlayer(snapshot, { activate: true }) : undefined);
+    await progressChain;
+    if (token !== state.playerToken) return;
     if (autoplay) play();
+    void guides.refresh().catch(() => {});
     saveProgress();
     // Prepare the album queue while in foreground so the next track doesn't
     // depend on an IndexedDB read after the phone locks.
-    await Promise.allSettled(state.queue.map(next => prepareURL(next)));
+    const preparedQueue = state.library.settings.repeatMode === 'album' ? tracksIn(state.library, track.albumId).map(item => item.id) : state.queue;
+    await Promise.allSettled(preparedQueue.map(next => prepareURL(next)));
     if (token !== state.playerToken) return;
-    for (const [key, value] of state.urls) if (key !== id && !state.queue.includes(key)) { URL.revokeObjectURL(value); state.urls.delete(key); }
+    for (const [key, value] of state.urls) if (key !== id && !preparedQueue.includes(key)) { URL.revokeObjectURL(value); state.urls.delete(key); }
   } finally { state.loadingAudio--; }
 }
 function play() {
@@ -715,6 +753,10 @@ function seekSentence(direction) {
 function updatePlayer() {
   const track = currentTrack(); $('mini-player').hidden = !track; $('app').classList.toggle('has-player', !!track);
   if (!track) return;
+  const mode = state.library.settings.repeatMode || 'off';
+  $('repeat-label').textContent = { off: '順序', track: '單曲', album: '專輯' }[mode];
+  $('playback-repeat').setAttribute('aria-label', `播放模式：${{ off: '一般播放', track: '單曲循環', album: '專輯循環' }[mode]}，點按切換`);
+  $('playback-repeat').classList.toggle('repeat-active', mode !== 'off');
   $('mini-title').textContent = track.title; $('mini-subtitle').textContent = albumOf(track)?.title || 'CommuteLingo';
   $('player-title').textContent = track.title; $('player-show').textContent = track.show || '你的通勤語言時光'; $('player-album').textContent = albumOf(track)?.title || '';
   cover($('mini-cover'), track.albumId); cover($('player-art'), track.albumId);
@@ -749,11 +791,18 @@ function updateTimeline() {
 async function saveProgress({ strict = false } = {}) {
   const track = currentTrack(); if (!track || state.clearing || !state.ready) return;
   const position = Math.min(track.duration, translationAudio.returnTime ?? (audio.currentTime || 0));
+  const snapshot = { sessionId: playerSession, trackId: track.id, queue: [...state.queue], position, speed: audio.playbackRate };
   try {
-    await storage.write(`progress:${track.id}`, { position });
-    if (state.clearing || state.current !== track.id) return;
-    await storage.write('player-v2', { trackId: track.id, queue: state.queue, position, speed: audio.playbackRate });
+    progressChain = progressChain.catch(() => {}).then(() => state.clearing ? undefined : storage.savePlayer(snapshot));
+    await progressChain;
   } catch (error) { notify('播放進度暫時無法保存。', true); if (strict) throw error; }
+}
+async function dismissPlayer() {
+  const track = currentTrack(); if (!track) return;
+  const snapshot = { sessionId: playerSession, trackId: track.id, queue: [...state.queue], position: translationAudio.returnTime ?? audio.currentTime ?? 0, speed: audio.playbackRate };
+  releasePlayer();
+  progressChain = progressChain.catch(() => {}).then(() => storage.savePlayer(snapshot, { dismiss: true }));
+  await progressChain;
 }
 function updateMediaSession() {
   if (!('mediaSession' in navigator)) return;
@@ -827,11 +876,11 @@ async function restoreBackup(file) {
 }
 
 async function clearAll() {
-  if (state.job || state.writing || state.restoring) throw new Error('請先停止來源匯入，或等待儲存完成。');
-  await ask({ heading: '清除全部收藏與資料？', description: `將刪除 ${state.library.albums.length} 個專輯、${state.library.tracks.length} 個音訊（${bytes(libraryBytes(state.library))}）、${state.vocabulary.words.length} 個單字與筆記、字幕、翻譯快取、設定、舊版資料與下載的語音模型。
+  if (state.job || state.writing || state.restoring || guides.keyBusy) throw new Error('請先停止來源匯入，或等待儲存完成。');
+  await ask({ heading: '清除全部收藏與資料？', description: `將刪除 ${state.library.albums.length} 個專輯、${state.library.tracks.length} 個音訊（${bytes(libraryBytes(state.library))}）、${state.vocabulary.words.length} 個單字與筆記、字幕、導讀、Gemini Key、翻譯快取、設定、舊版資料與下載的語音模型。
 此操作無法復原。App 頁面程式會保留；其他 App 的資料不受影響。`, confirm: '確認全部清除', danger: true,
     accept: async () => {
-      state.clearing = true; cancelWordLookup(); state.backup?.abort(); closeTranslation(); audio.pause();
+      state.clearing = true; guides.clear(); cancelWordLookup(); state.backup?.abort(); closeTranslation(); audio.pause();
       try {
         await storage.clear();
         releasePlayer(); translator.clear(); state.pending = null; state.legacy = null; state.library = emptyLibrary(); state.vocabulary = emptyVocabulary(); state.settingsDirty = false; state.album = null;
@@ -841,7 +890,7 @@ async function clearAll() {
         clearAudioFile(); render(); $('import-progress').hidden = true; $('source-url').value = ''; updateSourceControls();
         state.channel?.postMessage({ type: 'cleared' });
         notify(failures.length ? '收藏與設定已清除，但模型快取尚未清除，請稍後重試。' : '全部收藏與資料已清除。', !!failures.length);
-      } finally { state.clearing = false; }
+      } finally { state.clearing = false; renderWriteControls(); }
     }
   });
 }
@@ -883,7 +932,7 @@ $('settings-form').onsubmit = safe(async event => {
   event.preventDefault(); $('settings-message').textContent = '';
   document.activeElement?.blur?.();
   try {
-    const settings = { albumLimit: +$('setting-albums').value, trackLimit: +$('setting-tracks').value, maxMinutes: +$('setting-minutes').value, autoUpdate: $('setting-auto-update').checked, subtitleSize: $('setting-subtitles').value, language: $('setting-language').value, model: $('setting-model').value, icon: 'sunrise' };
+    const settings = { albumLimit: +$('setting-albums').value, trackLimit: +$('setting-tracks').value, maxMinutes: +$('setting-minutes').value, autoUpdate: $('setting-auto-update').checked, subtitleSize: $('setting-subtitles').value, language: $('setting-language').value, model: $('setting-model').value, icon: 'sunrise', autoGuide: $('setting-auto-guide').checked, geminiModel: $('setting-gemini-model').value };
     await commit(changeSettings(state.library, settings)); state.settingsDirty = false; updateMediaSession(); $('settings-message').textContent = '設定已儲存。'; void updater.refresh();
   } catch (error) { $('settings-message').textContent = error.message; }
 });
@@ -906,6 +955,13 @@ for (const name of ['vocabulary-search', 'vocabulary-filter', 'vocabulary-tag'])
 $('vocabulary-more').onclick = () => { state.wordLimit += 40; renderVocabulary(); };
 $('legacy-backup').onclick = () => { if (state.legacy?.file) download(state.legacy.file, state.legacy.name || 'legacy-audio.mp3'); };
 $('mini-open').onclick = openPlayer; $('mini-play').onclick = togglePlay; $('player-play').onclick = togglePlay;
+$('mini-dismiss').onclick = safe(dismissPlayer);
+$('toggle-guide').onclick = () => setGuideVisible($('guide-panel').hidden);
+$('playback-repeat').onclick = safe(async () => {
+  const modes = ['off', 'track', 'album'], mode = modes[(modes.indexOf(state.library.settings.repeatMode) + 1) % modes.length];
+  await commit(changeSettings(state.library, { repeatMode: mode }));
+  if (mode === 'album' && currentTrack()) await Promise.allSettled(tracksIn(state.library, currentTrack().albumId).map(track => prepareURL(track.id)));
+});
 $('mini-next').onclick = () => seekSentence(1); $('previous-sentence').onclick = () => seekSentence(-1); $('next-sentence').onclick = () => seekSentence(1);
 $('player-close').onclick = () => closeDialog($('player')); $('player').addEventListener('close', resetSubtitles);
 $('player-menu').onclick = safe(() => currentTrack() && trackMenu(currentTrack()));
@@ -939,14 +995,14 @@ audio.addEventListener('seeked', () => { updateTimeline(); if (!state.translatio
 audio.addEventListener('error', () => { if (state.current) { $('player-feedback').textContent = '音訊播放失敗，請重新選擇音訊或匯入來源。'; notify('音訊播放失敗，請重新選擇音訊或匯入來源。', true); } });
 audio.addEventListener('ended', safe(async () => {
   if (translationAudio.active) return;
-  const index = state.queue.indexOf(state.current), next = state.queue[index + 1];
-  saveProgress(); if (next) await selectTrack(next, { queue: state.queue, autoplay: true, position: 0 }); else { updatePlayer(); $('player-feedback').textContent = '這段旅程已聽完。'; }
+  const next = nextPlayback(state.library, state.current, state.queue);
+  saveProgress(); if (next) await selectTrack(next.id, { queue: next.queue, autoplay: true, position: 0 }); else { updatePlayer(); $('player-feedback').textContent = '這段旅程已聽完。'; }
 }));
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) { translationAudio.pause(); if (state.job) cancelImport('來源匯入因離開前景而停止，請回來後重新開始。原有收藏已保留。'); saveProgress(); }
   else { updateTimeline(); if (!audio.paused) subtitleFollow.resume(); orientation(); if (state.library.settings.autoUpdate) void updater.check(); }
 });
-window.addEventListener('pagehide', () => { translationAudio.pause(); if (state.job) cancelImport(); state.translation?.abort(); state.backup?.abort(); cancelWordLookup(); saveProgress(); });
+window.addEventListener('pagehide', () => { guides.clear(); translationAudio.pause(); if (state.job) cancelImport(); state.translation?.abort(); state.backup?.abort(); cancelWordLookup(); saveProgress(); });
 window.addEventListener('orientationchange', orientation); screen.orientation?.addEventListener('change', orientation); window.addEventListener('resize', orientation);
 async function offlineStatus() {
   if (!('serviceWorker' in navigator)) { void updater.start(); $('offline-status').textContent = '此瀏覽器未提供離線頁面支援。'; return; }
@@ -956,7 +1012,7 @@ async function offlineStatus() {
     const check = () => {
       const channel = new MessageChannel();
       const timer = setTimeout(() => { channel.port1.close(); $('offline-status').textContent = '新版可在線使用；請在保存後關閉舊分頁再開啟，以更新離線頁面。'; }, 2000);
-      channel.port1.onmessage = ({ data }) => { clearTimeout(timer); channel.port1.close(); $('offline-status').textContent = data.version === '0.2.17' && data.ready ? '頁面已可離線使用；已收藏的音訊與快取翻譯可離線讀取，新匯入與新翻譯需要連線。' : '新版可在線使用，離線頁面尚待更新。'; };
+      channel.port1.onmessage = ({ data }) => { clearTimeout(timer); channel.port1.close(); $('offline-status').textContent = data.version === '0.2.18' && data.ready ? '頁面已可離線使用；已收藏的音訊與快取翻譯可離線讀取，新匯入與新翻譯需要連線。' : '新版可在線使用，離線頁面尚待更新。'; };
       registration.active?.postMessage({ type: 'CACHE_VERSION' }, [channel.port2]);
     };
     navigator.serviceWorker.addEventListener('controllerchange', check); check();
@@ -986,6 +1042,7 @@ async function boot() {
     const vocabulary = await storage.read(VOCABULARY_KEY);
     state.vocabulary = vocabulary ? validateVocabulary(vocabulary) : emptyVocabulary();
     library.settings = validateSettings(library.settings); state.library = library; state.ready = true;
+    await guides.refresh();
     render(); $('start-import').disabled = false;
     const savedPlayer = await storage.read('player-v2');
     if (savedPlayer && library.tracks.some(track => track.id === savedPlayer.trackId)) {
@@ -995,9 +1052,11 @@ async function boot() {
     if (globalThis.BroadcastChannel) {
       state.channel = new BroadcastChannel('commute-lingo-library-v2');
       state.channel.onmessage = safe(async ({ data }) => {
+        if (data.type === 'gemini-key-changed') { guides.clear(); await guides.refresh(); return; }
+        if (data.type === 'guide-changed') { await guides.refresh(); return; }
         try {
           if (data.type === 'cleared') {
-            state.clearing = true; cancelImport('其他分頁已清除收藏。'); releasePlayer();
+            state.clearing = true; guides.clear(); cancelImport('其他分頁已清除收藏。'); releasePlayer();
             state.pending = null; state.legacy = null; state.backup?.abort(); cancelWordLookup(); state.settingsDirty = false; translator.clear();
           }
           const fresh = await storage.readPersonalData();
@@ -1009,8 +1068,9 @@ async function boot() {
           if (state.current && !currentTrack()) releasePlayer();
           if (data.type === 'words-changed' && !libraryChanged) { renderVocabulary(); renderWordSelection(); }
           else render();
+          await guides.refresh();
           notify('已同步這個裝置其他分頁的資料變更。');
-        } finally { state.clearing = false; }
+        } finally { state.clearing = false; renderWriteControls(); }
       });
     }
   } catch (error) { notify(`無法讀取收藏：${error.message}`, true); $('storage-detail').textContent = error.message; }

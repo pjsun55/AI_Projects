@@ -74,9 +74,18 @@ try {
   const screen = { width: 393, height: 852, orientation: { type: 'portrait-primary', addEventListener() {} } };
   const fixtureSentence = 'While the train moves through the city and the morning sun fills the windows, I listen to a familiar story and notice the expressions I missed yesterday, then I repeat a useful sentence quietly and save the lesson for another journey.';
   const translatedTexts = [], dictionaryWords = [], heldWordLookups = []; let failWordLookups = false, holdWordLookups = false;
+  const geminiCalls = [], heldGuides = []; let holdGuides = false, failGuides = false;
   let fixtureName = 'A short test episode', fixtureMillis = 4000, fixtureSeconds = 4, partialTranscript = false, missingModelStart = false, wordTranscript = false, mixedTranscript = false, holdWorker = false, failWorker = false, mediaDownloads = 0, catalogLookups = 0, translated = 0;
   const runtimeFetch = async (input, options = {}) => {
     const url = new URL(input);
+    if (url.hostname === 'generativelanguage.googleapis.com') {
+      const body = JSON.parse(options.body), original = body.contents[0].parts[0].text;
+      geminiCalls.push({ url: url.href, body, header: options.headers['x-goog-api-key'] });
+      const content = { intro: '這一集從通勤旅程切入，介紹如何留意熟悉故事中的表達方式。', route: ['聽聽旅途中看見了什麼。'], vocabulary: [{ term: 'familiar', pos: 'adj.', meaning: '熟悉的', quote: fixtureSentence, clue: '昨天聽過的故事提供了語境。' }], sentence: { quote: 'Listen and learn along the way.', translation: '一路聆聽與學習。', explanation: '兩個動詞以 and 連接。' } };
+      const reply = () => failGuides ? new Response('provider detail omitted', { status: 429 }) : new Response('data: ' + JSON.stringify({ candidates: [{ content: { parts: [{ text: original === 'Please reply with OK.' ? 'OK' : JSON.stringify(content) }] }, finishReason: 'STOP' }], usageMetadata: { totalTokenCount: 100 } }) + '\n\n', { headers: { 'Content-Type': 'text/event-stream' } });
+      if (holdGuides) return new Promise(resolve => heldGuides.push(() => resolve(reply())));
+      return reply();
+    }
     if (url.hostname === 'itunes.apple.com') { catalogLookups++; return Response.json({ results: [{ trackId: 1000796641961, trackName: fixtureName, collectionName: 'Public fixture', trackTimeMillis: fixtureMillis, episodeUrl: 'https://media.example.com/fixture.wav' }] }); }
     if (url.hostname === 'media.example.com') { mediaDownloads++; return new Response(new Blob(['wav fixture'], { type: 'audio/wav' })); }
     if (url.hostname === 'api.mymemory.translated.net') { translated++; translatedTexts.push(url.searchParams.get('q')); if (failWordLookups) throw new Error('Simulated offline lookup'); const response = Response.json({ responseStatus: 200, responseData: { translatedText: '每段旅程都會帶來新的發現。' } }); if (holdWordLookups) return new Promise(resolve => heldWordLookups.push(() => resolve(response))); return response; }
@@ -133,7 +142,7 @@ try {
   check($('source-url').value === '' && $('clear-source-url').disabled && (await library()).revision === revisionBeforeClear && mediaDownloads === 0, 'clear removes the old URL without submitting or changing saved data');
   check($('view-playlist').hidden === false && $('subtitles-panel').hidden, 'playlist opens with subtitles off');
   check(!!$('audio-file') && !$('source-youtube') && !$('youtube-source') && $('start-file-import').disabled, 'local audio selection replaces the inactive YouTube entry and requires a file');
-  check(!$('icon-options') && $('brand-icon').getAttribute('src').includes('sunrise') && $('gemini-key').disabled, 'fixed orange identity has no appearance switcher and Gemini remains inactive');
+  check(!$('icon-options') && $('brand-icon').getAttribute('src').includes('sunrise') && !$('gemini-key').disabled && !$('save-gemini-key').disabled && $('remove-gemini-key').disabled, 'fixed orange identity and optional Gemini setup are available without a saved key');
   click('create-album'); $('edit-title').value = 'My commute'; await confirm();
   check((await library()).albums[0].title === 'My commute', 'album created and committed to IndexedDB');
   const albumId = (await library()).albums[0].id;
@@ -585,6 +594,99 @@ try {
   click('clear-data'); await until(() => $('dialog-title').textContent === '清除全部收藏與資料？' && $('action-dialog').open, 'clear during lookup confirmation'); await confirm();
   for (const release of heldWordLookups) release(); await delay(30);
   check(!(await words()) && !(await library()) && !(await storageModule.entries('translation:')).length, 'clearing all data cancels lookups and late API responses cannot resurrect words or translation caches');
+
+  // Formal guide workflow: only synthetic fixtures enter the mocked provider.
+  const vault = (await load(new URL(`../public/key-vault.mjs?v=${version}`, import.meta.url).href)).namespace;
+  const guideModule = (await load(new URL(`../public/guide.mjs?v=${version}`, import.meta.url).href)).namespace;
+  const fixtureKey = 'fixture_only_invalid_key_000000000000';
+  $('gemini-key').value = fixtureKey; click('save-gemini-key');
+  check($('gemini-key').value === '', 'saving a Key immediately clears the input');
+  await until(async () => !!await storageModule.read('gemini-key-v1') && !$('remove-gemini-key').disabled, 'encrypted Key saved');
+  const encrypted = await storageModule.read('gemini-key-v1');
+  check(encrypted.cryptoKey.extractable === false && await vault.decryptApiKey(encrypted) === fixtureKey && geminiCalls.length === 0 && !JSON.stringify(encrypted).includes(fixtureKey), 'IndexedDB retains a decryptable nonextractable CryptoKey and ciphertext without calling Google on save');
+  click('verify-gemini-key'); await until(() => geminiCalls.length === 1 && !$('verify-gemini-key').disabled, 'saved Key verification');
+  check(geminiCalls[0].body.contents[0].parts[0].text === 'Please reply with OK.', 'saved Key verifies with a fixed short prompt only');
+  click('create-album'); $('edit-title').value = 'Guide fixtures'; await confirm();
+  const guideAlbum = (await library()).albums[0].id;
+  mixedTranscript = wordTranscript = partialTranscript = missingModelStart = holdWorker = failWorker = false; failWordLookups = false; holdWordLookups = false; fixtureSeconds = 4; fixtureMillis = 4000;
+  const guideImport = async name => {
+    fixtureName = name; $('source-url').value = sourceLink; submit('import-form');
+    await until(() => $('action-dialog').open && $('destination-album'), 'guide fixture placement');
+    $('destination-album').value = guideAlbum; $('destination-album').dispatchEvent(event('change')); await confirm();
+    return (await library()).tracks.find(track => track.title === name);
+  };
+  const guidedTrack = await guideImport('Guided episode');
+  await until(async () => (await storageModule.read(`guide:${guidedTrack.id}`))?.status === 'ready', 'automatic guide persisted');
+  check(geminiCalls.length === 2 && geminiCalls[1].body.contents[0].parts[0].text === guideModule.transcriptText(guidedTrack), 'one automatic guide request starts only after complete transcript and audio are saved');
+  const openGuided = async () => { [...$('playlist-tracks').querySelectorAll('.track-main')].find(row => row.textContent.includes(guidedTrack.title)).dispatchEvent(event('click')); await until(() => $('player').open && $('player-title').textContent === guidedTrack.title && !audio.paused, 'guided playback'); };
+  await openGuided(); click('toggle-guide'); await until(() => $('guide-content').querySelector('.guide-save-word'), 'saved guide displayed');
+  check(!$('guide-panel').hidden && $('subtitles-panel').hidden && $('guide-content').textContent.includes('熟悉的') && geminiCalls.length === 2, 'opening a saved guide renders local content without a second request');
+  const translationsBeforeGuideWord = translated, dictionaryBeforeGuideWord = dictionaryWords.length;
+  $('guide-content').querySelector('.guide-save-word').dispatchEvent(event('click'));
+  await until(async () => (await words())?.words.some(word => word.word === 'familiar'), 'guide word collection');
+  const collected = (await words()).words.find(word => word.word === 'familiar');
+  check(collected.translation === '熟悉的' && collected.translationSource === 'gemini' && collected.note.includes(fixtureSentence) && translated === translationsBeforeGuideWord && dictionaryWords.length === dictionaryBeforeGuideWord && geminiCalls.length === 2, 'guide collection retains meaning, attribution and original quote without extra API calls');
+  failGuides = true; click('generate-guide');
+  await until(async () => (await storageModule.read(`guide:${guidedTrack.id}`))?.status === 'failed' && !$('generate-guide').disabled, 'manual regeneration failure');
+  await delay(40);
+  check(geminiCalls.length === 3 && $('guide-content').textContent.includes('熟悉的'), 'quota failure preserves the saved guide and never retries automatically');
+  failGuides = false; click('generate-guide');
+  await until(async () => (await storageModule.read(`guide:${guidedTrack.id}`))?.status === 'ready' && !$('generate-guide').disabled, 'explicit manual guide retry');
+  const successfulGuideCalls = geminiCalls.length;
+  check(successfulGuideCalls === 4, 'explicit retry makes one request and replaces the saved guide only after success');
+  click('toggle-subtitles'); check($('guide-panel').hidden && !$('subtitles-panel').hidden, 'subtitle and guide panels are mutually exclusive');
+  click('playback-repeat'); await until(async () => (await library()).settings.repeatMode === 'track', 'single repeat enabled');
+  audio.currentTime = 4; audio.dispatchEvent(event('ended'));
+  await until(() => audio.currentTime === 0 && !audio.paused, 'single track restarts');
+  check($('player-title').textContent === guidedTrack.title && $('repeat-label').textContent === '單曲', 'single repeat restarts the current audio from zero');
+  click('player-close'); await delay(10); audio.currentTime = 1.2; click('mini-dismiss');
+  await until(async () => $('mini-player').hidden && (await storageModule.read('player-v2')) === null, 'top player dismissed');
+  const staleSnapshot = { sessionId: 'old-session', trackId: guidedTrack.id, position: 3, queue: [guidedTrack.id], speed: 1 };
+  check(audio.paused && (await storageModule.read(`progress:${guidedTrack.id}`)).position === 1.2 && !(await storageModule.savePlayer(staleSnapshot)) && await storageModule.read('player-v2') === null, 'dismiss stops playback, retains per-track position and rejects late progress resurrection');
+  await openGuided(); check(audio.currentTime === 1.2, 'reopening a dismissed episode resumes its retained position');
+  click('player-close'); await delay(10); holdGuides = true;
+  $('setting-auto-guide').checked = false; submit('settings-form');
+  await until(async () => (await library()).settings.autoGuide === false, 'automatic guide disabled');
+  const queuedTrack = await guideImport('Held guide');
+  await delay(40);
+  check(geminiCalls.length === successfulGuideCalls && !await storageModule.read(`guide:${queuedTrack.id}`), 'disabling automatic guides saves a new episode without uploading its transcript');
+  [...$('playlist-tracks').querySelectorAll('.track-main')].find(row => row.textContent.includes(queuedTrack.title)).dispatchEvent(event('click'));
+  await until(() => $('player').open && !audio.paused, 'manual guide track opened'); click('toggle-guide');
+  await until(() => !$('generate-guide').disabled, 'manual guide available'); click('generate-guide');
+  await until(() => heldGuides.length === 1, 'second guide held');
+  const sourceForHeld = guideModule.transcriptText(queuedTrack), fingerprintForHeld = await guideModule.guideFingerprint(sourceForHeld);
+  const claimContext = { source: sourceForHeld, fingerprint: fingerprintForHeld, keyId: encrypted.id, model: 'gemini-3.5-flash-lite', requestId: 'another-tab' };
+  const competing = await storageModule.updateGuide(queuedTrack.id, { ...claimContext, action: 'claim' });
+  check(!competing.changed && geminiCalls.length === successfulGuideCalls + 1, 'atomic guide claim prevents another tab from starting a duplicate request');
+  click('remove-gemini-key'); await until(async () => !await storageModule.read('gemini-key-v1') && !$('save-gemini-key').disabled, 'Key removed');
+  heldGuides.shift()(); await delay(60); holdGuides = false;
+  check((await storageModule.read(`guide:${queuedTrack.id}`)).status === 'failed' && !(await storageModule.read(`guide:${queuedTrack.id}`)).content && (await storageModule.read(`guide:${guidedTrack.id}`)).status === 'ready', 'Key removal rejects a late response and preserves already saved guides');
+  await openGuided(); click('toggle-guide'); await until(() => $('guide-content').querySelector('.guide-save-word'), 'saved guide without Key');
+  check($('generate-guide').disabled && $('guide-content').textContent.includes('熟悉的') && geminiCalls.length === successfulGuideCalls + 1, 'removing Key keeps offline guides readable while disabling generation');
+  click('player-close'); await delay(10);
+  const backupModule = (await load(new URL(`../public/backup.mjs?v=${version}`, import.meta.url).href)).namespace;
+  const safeBackup = await (await backupModule.personalBackup((await library()).settings, await words())).text();
+  check(!safeBackup.includes(fixtureKey) && !safeBackup.includes('cryptoKey') && !safeBackup.includes('ciphertext') && !safeBackup.includes('guide:'), 'personal backup excludes credentials, encryption keys and guide records');
+  const generationBeforeClear = await storageModule.dataGeneration();
+  click('clear-data'); await until(() => $('action-dialog').open, 'guide data clearing confirmation'); await confirm();
+  await assert.rejects(storageModule.setGeminiKey(encrypted, generationBeforeClear));
+  check(!(await storageModule.read('gemini-key-v1')) && !(await storageModule.entries('guide:')).length && !$('save-gemini-key').disabled, 'clear deletes all guides and credentials, blocks stale encrypted saves and restores setup controls');
+  // Isolated transaction checks after the interactive flow has cleared its data.
+  const isolatedLibrary = { schema: 2, revision: 1, settings: { autoGuide: true }, albums: [{ id: guideAlbum }], tracks: [guidedTrack] };
+  await storageModule.write('library-v2', isolatedLibrary);
+  await storageModule.setGeminiKey(encrypted, await storageModule.dataGeneration());
+  const isolatedContext = { source: guideModule.transcriptText(guidedTrack), fingerprint: await guideModule.guideFingerprint(guideModule.transcriptText(guidedTrack)), keyId: encrypted.id, model: 'gemini-3.5-flash-lite' };
+  const claims = await Promise.all(['first', 'second'].map(requestId => storageModule.updateGuide(guidedTrack.id, { ...isolatedContext, requestId, action: 'claim' })));
+  check(claims.filter(result => result.changed).length === 1, 'concurrent IndexedDB transactions acquire exactly one guide claim');
+  const ownedId = claims.find(result => result.changed).record.request.id;
+  await storageModule.write('library-v2', { ...isolatedLibrary, tracks: [{ ...guidedTrack, segments: [{ start: 0, end: 4, text: 'Changed transcript.' }] }] });
+  check(!(await storageModule.updateGuide(guidedTrack.id, { ...isolatedContext, requestId: ownedId, action: 'complete', content: {} })).changed, 'changed source rejects an old in-flight guide completion');
+  const changedSource = 'Changed transcript.';
+  check((await storageModule.updateGuide(guidedTrack.id, { ...isolatedContext, source: changedSource, fingerprint: await guideModule.guideFingerprint(changedSource), requestId: 'new-source', action: 'claim' })).changed, 'a newly saved transcript can acquire a guide claim without waiting for the obsolete source lease');
+  await storageModule.write('library-v2', isolatedLibrary);
+  await storageModule.commitLibrary({ ...isolatedLibrary, tracks: [], revision: 2 }, { expectedRevision: 1, removeIds: [guidedTrack.id] });
+  check(!(await storageModule.updateGuide(guidedTrack.id, { ...isolatedContext, requestId: ownedId, action: 'complete', content: {} })).changed && !await storageModule.read(`guide:${guidedTrack.id}`), 'episode deletion atomically deletes its guide and rejects late completion');
+  await storageModule.clear();
   console.log(JSON.stringify({ status: 'UI_AND_IDB_SIMULATION_PASS', assertions, externalModuleHosts: [...requests], renderer: 'none; not browser or iPhone verification' }, null, 2));
 } catch (error) {
   console.error(error.stack ?? error);

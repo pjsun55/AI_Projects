@@ -53,7 +53,7 @@ export function validateWord(value) {
   if (typeof value.id !== 'string' || !/^[A-Za-z0-9_-]{1,80}$/.test(value.id)) throw new Error('單字識別碼無效。');
   if (!Object.hasOwn(WORD_STATUSES, value.status) || typeof value.starred !== 'boolean') throw new Error('學習狀態或星號格式無效。');
   for (const name of ['createdAt', 'updatedAt', 'version']) if (!Number.isSafeInteger(value[name]) || value[name] < 0 || (name !== 'version' && value[name] > 8640000000000000)) throw new Error('單字日期或版本無效。');
-  if (!['', 'mymemory', 'manual'].includes(value.translationSource)) throw new Error('翻譯來源無效。');
+  if (!['', 'mymemory', 'manual', 'gemini'].includes(value.translationSource)) throw new Error('翻譯來源無效。');
   // Whitelist every persisted field: no audio, transcript, credentials or arbitrary URLs.
   return { id: value.id, word, language: value.language, translation: text(value.translation, 500, '中文解釋'), translationSource: value.translationSource,
     dictionary: normalizeDictionary(value.dictionary, word), tags: normalizeTags(value.tags), starred: value.starred, status: value.status,
@@ -69,12 +69,12 @@ export function validateVocabulary(value) {
   });
   return { schema: 1, generation: value.generation, revision: value.revision, words };
 }
-export function addWord(book, { word, language, sourceTitle = '', translation = '', tags = [] }, { id = crypto.randomUUID(), now = Date.now() } = {}) {
+export function addWord(book, { word, language, sourceTitle = '', translation = '', tags = [], translationSource, note = '' }, { id = crypto.randomUUID(), now = Date.now() } = {}) {
   const identity = wordIdentity(word, language);
   if (book.words.some(item => wordIdentity(item.word, item.language) === identity)) throw new Error('這個單字已在單字本，不會重複新增。');
   if (book.words.length >= MAX_WORDS) throw new Error('單字本已達 10,000 筆，請先整理後再加入。');
   const meaning = text(translation, 500, '中文解釋');
-  const entry = validateWord({ id, word, language, translation: meaning, translationSource: meaning ? 'manual' : '', dictionary: null, tags, starred: false, status: 'new', note: '', sourceTitle, createdAt: now, updatedAt: now, version: 0 });
+  const entry = validateWord({ id, word, language, translation: meaning, translationSource: meaning ? translationSource || 'manual' : '', dictionary: null, tags, starred: false, status: 'new', note, sourceTitle, createdAt: now, updatedAt: now, version: 0 });
   return { ...book, words: [...book.words, entry] };
 }
 export function editWord(book, id, changes, now = Date.now()) {

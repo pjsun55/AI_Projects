@@ -1,9 +1,24 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { emptyLibrary, DEFAULT_SETTINGS, validateSettings, checkDuration, addAlbum, removeAlbum, removeTrack, rename, tracksIn, placeTrack, changeSettings, playbackQueue, sentenceTarget, legacyLibrary, libraryBytes } from '../public/library.mjs';
+import { emptyLibrary, DEFAULT_SETTINGS, validateSettings, checkDuration, addAlbum, removeAlbum, removeTrack, rename, tracksIn, placeTrack, changeSettings, playbackQueue, nextPlayback, sentenceTarget, legacyLibrary, libraryBytes } from '../public/library.mjs';
 
 const track = (id, seconds = 60) => ({ id, title: `Audio ${id}`, duration: seconds, size: 1234, segments: [{ start: 0, end: seconds, text: 'One complete sentence.' }] });
 function albumLibrary() { return addAlbum(emptyLibrary(), 'On the train', 'a'); }
+test('repeat modes retain a full album when starting in the middle, wrap and exclude other albums', () => {
+  let library = addAlbum(albumLibrary(), 'Other album', 'b');
+  for (const id of ['one', 'two', 'three']) library = placeTrack(library, track(id), 'a');
+  library = placeTrack(library, track('other'), 'b');
+  assert.deepEqual(nextPlayback(library, 'two', ['two', 'three']), { id: 'three', queue: ['two', 'three'] });
+  assert.equal(nextPlayback(library, 'three', ['two', 'three']), null);
+  library = changeSettings(library, { repeatMode: 'track' });
+  assert.deepEqual(nextPlayback(library, 'two', ['two', 'three']), { id: 'two', queue: ['two', 'three'] });
+  library = changeSettings(library, { repeatMode: 'album' });
+  assert.deepEqual(nextPlayback(library, 'three', ['two', 'three']), { id: 'one', queue: ['one', 'two', 'three'] });
+  assert.equal(nextPlayback(library, 'deleted', []), null);
+  library = removeTrack(removeTrack(library, 'one'), 'three');
+  assert.deepEqual(nextPlayback(library, 'two', ['two', 'three']), { id: 'two', queue: ['two'] });
+  for (const input of [{ repeatMode: 'infinite' }, { autoGuide: 'yes' }, { geminiModel: '../other' }]) assert.throws(() => validateSettings(input));
+});
 test('defaults and hard limits match the requested 3 albums / 3 per album / 25 minutes', () => {
   assert.deepEqual([DEFAULT_SETTINGS.albumLimit, DEFAULT_SETTINGS.trackLimit, DEFAULT_SETTINGS.maxMinutes], [3, 3, 25]);
   assert.doesNotThrow(() => validateSettings({ albumLimit: 5, trackLimit: 5, maxMinutes: 60 }));

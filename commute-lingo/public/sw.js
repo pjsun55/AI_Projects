@@ -1,9 +1,9 @@
 const PREFIX = 'commute-lingo-shell-';
-const VERSION = '0.2.17';
+const VERSION = '0.2.18';
 const CACHE = `${PREFIX}${VERSION}-r1`;
 const ASSETS = ['./', `./?v=${VERSION}`, './index.html', './icon.svg',
   ...['journey', 'dialogue', 'sunrise'].flatMap(name => [`./icon-${name}.svg`, `./icon-${name}-192.png`, `./icon-${name}-512.png`, `./manifest-${name}.webmanifest?v=${VERSION}`]),
-  ...['styles.css', 'app.mjs', 'core.mjs', 'storage.mjs', 'translation.mjs', 'transcriber.mjs', 'asr.mjs', 'decode.mjs', 'decoder.mjs', 'library.mjs', 'source.mjs', 'network.mjs', 'icons.mjs', 'gestures.mjs', 'subtitles.mjs', 'backup.mjs', 'vocabulary.mjs', 'dictionary.mjs', 'manifest.webmanifest', 'updates.mjs', 'wake-lock.mjs', 'reading.mjs'].map(name => `./${name}?v=${VERSION}`)];
+  ...['styles.css', 'app.mjs', 'core.mjs', 'storage.mjs', 'translation.mjs', 'transcriber.mjs', 'asr.mjs', 'decode.mjs', 'decoder.mjs', 'library.mjs', 'source.mjs', 'network.mjs', 'icons.mjs', 'gestures.mjs', 'subtitles.mjs', 'backup.mjs', 'vocabulary.mjs', 'dictionary.mjs', 'manifest.webmanifest', 'updates.mjs', 'wake-lock.mjs', 'reading.mjs', 'guide.mjs', 'gemini.mjs', 'key-vault.mjs', 'guide-controller.mjs'].map(name => `./${name}?v=${VERSION}`)];
 const allowed = new Set(ASSETS.map(path => new URL(path, self.registration.scope).href));
 self.addEventListener('install', event => {
   event.waitUntil((async () => {
