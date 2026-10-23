@@ -1,8 +1,8 @@
-import * as storage from './storage.mjs?v=0.2.21';
-import { GEMINI_KEY, encryptApiKey, decryptApiKey } from './key-vault.mjs?v=0.2.21';
-import { generateGuide, verifyGeminiKey } from './gemini.mjs?v=0.2.21';
-import { transcriptText, guideAvailable, guideFingerprint, validateGuide } from './guide.mjs?v=0.2.21';
-import { normalizeWord, wordIdentity } from './vocabulary.mjs?v=0.2.21';
+import * as storage from './storage.mjs?v=0.2.22';
+import { GEMINI_KEY, encryptApiKey, decryptApiKey } from './key-vault.mjs?v=0.2.22';
+import { generateGuide, verifyGeminiKey } from './gemini.mjs?v=0.2.22';
+import { transcriptText, guideAvailable, guideFingerprint, validateGuide } from './guide.mjs?v=0.2.22';
+import { normalizeWord, wordIdentity } from './vocabulary.mjs?v=0.2.22';
 
 export function createGuideController({ getLibrary, getCurrent, getWords, saveWord, notify, openSettings, playQuote, broadcast, available = () => true }) {
   const $ = id => document.getElementById(id);
@@ -63,14 +63,15 @@ export function createGuideController({ getLibrary, getCurrent, getWords, saveWo
       return;
     }
     const settings = getLibrary().settings;
-    void guideFingerprint(source, settings.geminiModel).then(fingerprint => {
-      if (!running && !notices.has(track.id) && record.status === 'ready' && getCurrent()?.id === track.id && currentRecord() === record && record.fingerprint !== fingerprint) $('guide-status').textContent = '已完成 · 原文或模型已變更，可重新產生。';
+    void guideFingerprint(source, settings.geminiModel, settings.guidePrompt).then(fingerprint => {
+      if (!running && !notices.has(track.id) && record.status === 'ready' && getCurrent()?.id === track.id && currentRecord() === record && record.fingerprint !== fingerprint) $('guide-status').textContent = '已完成 · 原文、模型或 Prompt 已變更，可重新產生。';
     }).catch(() => {});
     const card = (heading, className) => { const section = element('section', `guide-card ${className}`); section.append(element('h3', '', heading)); root.append(section); return section; };
-    card('01 · 課前導讀', 'guide-intro').append(element('p', '', content.intro));
-    const route = card('02 · 聽力路線圖', 'guide-route'), list = element('ol');
-    content.route.forEach(item => list.append(element('li', '', item))); route.append(list);
-    const vocabulary = card('03 · 從線索猜字義', 'guide-vocabulary');
+    if (content.route.length) {
+      const route = card('01 · 課程導讀', 'guide-route'), list = element('ol');
+      content.route.forEach(item => { const row = element('li'); const split = item.indexOf('\n'); if (split > 0) row.append(element('strong', '', item.slice(0, split)), element('p', '', item.slice(split + 1).trim())); else row.append(element('p', '', item)); list.append(row); }); route.append(list);
+    } else card('01 · 課程導讀', 'guide-intro').append(element('p', '', content.intro));
+    const vocabulary = card('02 · 從線索猜字義', 'guide-vocabulary');
     for (const item of content.vocabulary) {
       const row = element('article', 'guide-word'), heading = element('div', 'guide-word-heading');
       heading.append(element('strong', '', item.term), element('small', '', item.pos));
@@ -86,7 +87,7 @@ export function createGuideController({ getLibrary, getCurrent, getWords, saveWo
       row.append(heading, quote, element('p', 'guide-clue', `猜字線索｜${item.clue}`), details); vocabulary.append(row);
     }
     if (content.sentence) {
-      const section = card('04 · 難句跟讀', 'guide-sentence'), quote = element('blockquote', 'guide-source', content.sentence.quote); quote.dataset.quote = content.sentence.quote;
+      const section = card('03 · 難句跟讀', 'guide-sentence'), quote = element('blockquote', 'guide-source', content.sentence.quote); quote.dataset.quote = content.sentence.quote;
       section.append(quote, element('p', '', content.sentence.translation), element('p', 'guide-clue', content.sentence.explanation), action('播放這段原音', () => playQuote(content.sentence.quote)));
     }
   }
@@ -100,7 +101,7 @@ export function createGuideController({ getLibrary, getCurrent, getWords, saveWo
       const settings = getLibrary().settings;
       const record = await storage.read(GEMINI_KEY);
       if (!record) { hasKey = false; throw Error('尚未保存 Gemini API Key，請先到個人設定加密保存。'); }
-      const source = transcriptText(track), model = settings.geminiModel, fingerprint = await guideFingerprint(source, model);
+      const source = transcriptText(track), model = settings.geminiModel, fingerprint = await guideFingerprint(source, model, settings.guidePrompt);
       if (active !== job || controller.signal.aborted || !available()) return;
       context = { source, fingerprint, keyId: record.id, requestId: crypto.randomUUID(), model, automatic: item.automatic, force: item.force };
       const claim = await storage.updateGuide(track.id, { ...context, action: 'claim' });
@@ -113,7 +114,7 @@ export function createGuideController({ getLibrary, getCurrent, getWords, saveWo
       broadcast('guide-changed'); render();
       key = await decryptApiKey(record);
       if (active !== job || controller.signal.aborted || (await storage.read(GEMINI_KEY))?.id !== record.id) return;
-      const result = await generateGuide({ key, model, text: source, signal: controller.signal, progress: message => { job.message = message; updateStatus(); } });
+      const result = await generateGuide({ key, model, text: source, prompt: settings.guidePrompt, signal: controller.signal, progress: message => { job.message = message; updateStatus(); } });
       if (controller.signal.aborted) return;
       job.message = '內容已收到，正在驗證與保存…'; updateStatus();
       const saved = await storage.updateGuide(track.id, { ...context, action: 'complete', ...result });

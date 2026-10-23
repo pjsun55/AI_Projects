@@ -1,19 +1,19 @@
-import { readingCues, activeWord } from './reading.mjs?v=0.2.21';
-import { formatTime, findActive, transcriptCoverage, sentenceTexts } from './core.mjs?v=0.2.21';
-import * as storage from './storage.mjs?v=0.2.21';
-import { createTranslator } from './translation.mjs?v=0.2.21';
-import { DEFAULT_SETTINGS, LIBRARY_KEY, emptyLibrary, validateSettings, title, tracksIn, addAlbum, removeAlbum, removeTrack, rename, placeTrack, changeSettings, libraryBytes, playbackQueue, nextPlayback, sentenceTarget, sentencesFor, legacyLibrary, newId } from './library.mjs?v=0.2.21';
-import { createGuideController } from './guide-controller.mjs?v=0.2.21';
-import { guideAudioRange } from './guide.mjs?v=0.2.21';
-import { importPodcast, importAudioFile, transcribeSavedAudio } from './source.mjs?v=0.2.21';
-import { icon, fillIcons } from './icons.mjs?v=0.2.21';
-import { longPress, isMobileLandscape } from './gestures.mjs?v=0.2.21';
-import { personalBackup, readPersonalBackup, planPersonalRestore } from './backup.mjs?v=0.2.21';
-import { VOCABULARY_KEY, LANGUAGES, WORD_STATUSES, emptyVocabulary, validateVocabulary, validateWord, normalizeWord, wordIdentity, addWord, editWord, needsLookup } from './vocabulary.mjs?v=0.2.21';
-import { lookupDictionary } from './dictionary.mjs?v=0.2.21';
-import { createSubtitleFollow, subtitleScrollTop, sentenceReadingParts, createAudioExcerpt } from './subtitles.mjs?v=0.2.21';
-import { createUpdater, reloadVersion } from './updates.mjs?v=0.2.21';
-import { holdScreenAwake } from './wake-lock.mjs?v=0.2.21';
+import { readingCues, activeWord } from './reading.mjs?v=0.2.22';
+import { formatTime, findActive, transcriptCoverage, sentenceTexts } from './core.mjs?v=0.2.22';
+import * as storage from './storage.mjs?v=0.2.22';
+import { createTranslator } from './translation.mjs?v=0.2.22';
+import { DEFAULT_SETTINGS, LIBRARY_KEY, emptyLibrary, validateSettings, title, tracksIn, addAlbum, removeAlbum, removeTrack, rename, placeTrack, changeSettings, libraryBytes, playbackQueue, nextPlayback, sentenceTarget, sentencesFor, legacyLibrary, newId } from './library.mjs?v=0.2.22';
+import { createGuideController } from './guide-controller.mjs?v=0.2.22';
+import { guideAudioRange, GUIDE_INSTRUCTION } from './guide.mjs?v=0.2.22';
+import { importPodcast, importAudioFile, transcribeSavedAudio } from './source.mjs?v=0.2.22';
+import { icon, fillIcons } from './icons.mjs?v=0.2.22';
+import { longPress, isMobileLandscape } from './gestures.mjs?v=0.2.22';
+import { personalBackup, readPersonalBackup, planPersonalRestore } from './backup.mjs?v=0.2.22';
+import { VOCABULARY_KEY, LANGUAGES, WORD_STATUSES, emptyVocabulary, validateVocabulary, validateWord, normalizeWord, wordIdentity, addWord, editWord, needsLookup } from './vocabulary.mjs?v=0.2.22';
+import { lookupDictionary } from './dictionary.mjs?v=0.2.22';
+import { createSubtitleFollow, subtitleScrollTop, sentenceReadingParts, createAudioExcerpt } from './subtitles.mjs?v=0.2.22';
+import { createUpdater, reloadVersion } from './updates.mjs?v=0.2.22';
+import { holdScreenAwake } from './wake-lock.mjs?v=0.2.22';
 
 const $ = id => document.getElementById(id);
 const audio = $('audio');
@@ -36,7 +36,7 @@ const currentTrack = () => state.library.tracks.find(track => track.id === state
 const albumOf = track => state.library.albums.find(album => album.id === track?.albumId);
 const safe = action => (...args) => { try { return Promise.resolve(action(...args)).catch(error => notify(error.message, true)); } catch (error) { notify(error.message, true); } };
 const updater = createUpdater({
-  serviceWorker: navigator.serviceWorker, version: '0.2.21',
+  serviceWorker: navigator.serviceWorker, version: '0.2.22',
   isAuto: () => state.library.settings.autoUpdate,
   visible: () => !document.hidden,
   canUpdate: () => state.ready && audio.paused && !guides.busy && !$('gemini-key').value && !state.loadingAudio && !state.job && !state.pending && !state.writing && !state.clearing && !state.backup && !state.restoring && !state.wordLookup && !state.translation && !state.settingsDirty && !$('player').open && !$('action-dialog').open && !$('source-url').value.trim() && !state.file && !document.activeElement?.matches?.('input,select,textarea'),
@@ -198,7 +198,7 @@ function renderLibrary() {
 function renderSettings() {
   if (state.settingsDirty) return;
   const settings = state.library.settings;
-  for (const [id, value] of [['setting-albums', settings.albumLimit], ['setting-tracks', settings.trackLimit], ['setting-minutes', settings.maxMinutes], ['setting-subtitles', settings.subtitleSize], ['setting-language', settings.language], ['setting-model', settings.model], ['setting-gemini-model', settings.geminiModel]]) $(id).value = value;
+  for (const [id, value] of [['setting-albums', settings.albumLimit], ['setting-tracks', settings.trackLimit], ['setting-minutes', settings.maxMinutes], ['setting-subtitles', settings.subtitleSize], ['setting-language', settings.language], ['setting-model', settings.model], ['setting-gemini-model', settings.geminiModel], ['setting-guide-prompt', settings.guidePrompt]]) $(id).value = value;
   $('setting-auto-update').checked = settings.autoUpdate;
   applyAppearance(settings);
 }
@@ -357,7 +357,7 @@ function applyAppearance(settings) {
   document.documentElement.style.setProperty('--subtitle-size', { normal: '18.4px', large: '22.4px', xlarge: '27.2px' }[settings.subtitleSize]);
   $('brand-icon').src = `./icon-${settings.icon}.svg`; $('favicon').href = `./icon-${settings.icon}.svg`;
   $('touch-icon').href = `./icon-${settings.icon}-192.png`;
-  $('manifest').href = `./manifest-${settings.icon}.webmanifest?v=0.2.21`;
+  $('manifest').href = `./manifest-${settings.icon}.webmanifest?v=0.2.22`;
 }
 async function refreshStorage() {
   const total = libraryBytes(state.library);
@@ -927,13 +927,14 @@ $('settings-form').onsubmit = safe(async event => {
   event.preventDefault(); $('settings-message').textContent = '';
   document.activeElement?.blur?.();
   try {
-    const settings = { albumLimit: +$('setting-albums').value, trackLimit: +$('setting-tracks').value, maxMinutes: +$('setting-minutes').value, autoUpdate: $('setting-auto-update').checked, subtitleSize: $('setting-subtitles').value, language: $('setting-language').value, model: $('setting-model').value, icon: 'sunrise', autoGuide: false, geminiModel: $('setting-gemini-model').value };
+    const settings = { albumLimit: +$('setting-albums').value, trackLimit: +$('setting-tracks').value, maxMinutes: +$('setting-minutes').value, autoUpdate: $('setting-auto-update').checked, subtitleSize: $('setting-subtitles').value, language: $('setting-language').value, model: $('setting-model').value, icon: 'sunrise', autoGuide: false, geminiModel: $('setting-gemini-model').value, guidePrompt: $('setting-guide-prompt').value };
     await commit(changeSettings(state.library, settings)); state.settingsDirty = false; updateMediaSession(); $('settings-message').textContent = '設定已儲存。'; void updater.refresh();
   } catch (error) { $('settings-message').textContent = error.message; }
 });
 for (const event of ['input', 'change']) $('settings-form').addEventListener(event, () => { state.settingsDirty = true; });
 $('check-update').onclick = () => { void updater.check(); };
 $('apply-update').onclick = () => { void updater.apply(); };
+$('reset-guide-prompt').onclick = () => { $('setting-guide-prompt').value = GUIDE_INSTRUCTION; state.settingsDirty = true; $('settings-message').textContent = '已恢復預設 Prompt，請按儲存設定。'; };
 $('setting-subtitles').onchange = () => { document.documentElement.style.setProperty('--subtitle-size', { normal: '18.4px', large: '22.4px', xlarge: '27.2px' }[$('setting-subtitles').value]); };
 $('request-persistence').onclick = safe(async () => {
   if (!navigator.storage?.persist) { $('persistence-status').textContent = '此瀏覽器未提供持續保存請求；請定期匯出備份。'; return; }
@@ -1026,7 +1027,7 @@ async function offlineStatus() {
     const check = () => {
       const channel = new MessageChannel();
       const timer = setTimeout(() => { channel.port1.close(); $('offline-status').textContent = '新版可在線使用；請在保存後關閉舊分頁再開啟，以更新離線頁面。'; }, 2000);
-      channel.port1.onmessage = ({ data }) => { clearTimeout(timer); channel.port1.close(); $('offline-status').textContent = data.version === '0.2.21' && data.ready ? '頁面已可離線使用；已收藏的音訊與快取翻譯可離線讀取，新匯入與新翻譯需要連線。' : '新版可在線使用，離線頁面尚待更新。'; };
+      channel.port1.onmessage = ({ data }) => { clearTimeout(timer); channel.port1.close(); $('offline-status').textContent = data.version === '0.2.22' && data.ready ? '頁面已可離線使用；已收藏的音訊與快取翻譯可離線讀取，新匯入與新翻譯需要連線。' : '新版可在線使用，離線頁面尚待更新。'; };
       registration.active?.postMessage({ type: 'CACHE_VERSION' }, [channel.port2]);
     };
     navigator.serviceWorker.addEventListener('controllerchange', check); check();

@@ -81,7 +81,7 @@ try {
     if (url.hostname === 'generativelanguage.googleapis.com') {
       const body = JSON.parse(options.body), original = body.contents[0].parts[0].text;
       geminiCalls.push({ url: url.href, body, header: options.headers['x-goog-api-key'] });
-      const content = { intro: '這一集從通勤旅程切入，介紹如何留意熟悉故事中的表達方式。', route: ['聽聽旅途中看見了什麼。'], vocabulary: [{ term: 'familiar', pos: 'adj.', meaning: '熟悉的', quote: fixtureSentence, clue: '昨天聽過的故事提供了語境。' }], sentence: { quote: 'Listen and learn along the way.', translation: '一路聆聽與學習。', explanation: '兩個動詞以 and 連接。' } };
+      const content = { intro: '這一集從通勤旅程切入，介紹如何留意熟悉故事中的表達方式。', route: ['旅途中的觀察\n這個主題從熟悉的故事切入，說明沿途的觀察如何幫助理解英文表達，並留意前後文的關係。'], vocabulary: [{ term: 'familiar', pos: 'adj.', meaning: '熟悉的', quote: fixtureSentence, clue: '昨天聽過的故事提供了語境。' }], sentence: { quote: 'Listen and learn along the way.', translation: '一路聆聽與學習。', explanation: '兩個動詞以 and 連接。' } };
       const reply = () => failGuides ? new Response('provider detail omitted', { status: 429 }) : new Response('data: ' + JSON.stringify({ candidates: [{ content: { parts: [{ text: original === 'Please reply with OK.' ? 'OK' : JSON.stringify(content) }] }, finishReason: 'STOP' }], usageMetadata: { totalTokenCount: 100 } }) + '\n\n', { headers: { 'Content-Type': 'text/event-stream' } });
       if (holdGuides) return new Promise(resolve => heldGuides.push(() => resolve(reply())));
       return reply();
@@ -147,6 +147,14 @@ try {
   check((await library()).settings.maxMinutes === 60, '60-minute preference persists to IndexedDB');
   $('setting-minutes').value = '25'; submit('settings-form');
   await until(async () => (await library()).settings.maxMinutes === 25, 'restore 25-minute preference');
+  const originalPrompt = $('setting-guide-prompt').value;
+  $('setting-guide-prompt').value = '依每個聽力主題完整解說。'; submit('settings-form');
+  await until(async () => (await library()).settings.guidePrompt === '依每個聽力主題完整解說。', 'custom guide prompt saved');
+  check(geminiCalls.length === 0, 'saving a guide prompt never calls Gemini');
+  click('reset-guide-prompt');
+  check($('setting-guide-prompt').value === originalPrompt && (await library()).settings.guidePrompt !== originalPrompt, 'reset previews the default without overwriting saved preferences');
+  submit('settings-form');
+  await until(async () => (await library()).settings.guidePrompt === originalPrompt, 'default prompt restored');
   check($('clear-source-url').disabled, 'empty URL has a disabled clear control');
   $('source-url').value = 'https://podcasts.apple.com/old-link'; $('source-url').dispatchEvent(event('input'));
   check(!$('clear-source-url').disabled, 'typing or pasting a URL enables its clear control');
@@ -664,6 +672,7 @@ try {
   await until(() => $('guide-content').querySelector('.guide-save-word'), 'saved guide displayed');
   check(!$('guide-panel').hidden && $('subtitles-panel').hidden && $('guide-content').textContent.includes('熟悉的') && geminiCalls.length === 2, 'opening a saved guide renders local content without a second request');
   const translationsBeforeGuideWord = translated, dictionaryBeforeGuideWord = dictionaryWords.length;
+  check($('guide-content').querySelector('.guide-route strong')?.textContent === '旅途中的觀察' && !$('guide-content').querySelector('.guide-intro'), 'expanded roadmap renders as the main guide with no duplicate introduction');
   $('guide-content').querySelector('.guide-save-word').dispatchEvent(event('click'));
   await until(async () => (await words())?.words.some(word => word.word === 'familiar'), 'guide word collection');
   const collected = (await words()).words.find(word => word.word === 'familiar');

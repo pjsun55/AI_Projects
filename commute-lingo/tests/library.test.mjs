@@ -112,3 +112,11 @@ test('old saved 22-minute episode migrates intact with an explicitly adjusted le
   assert.equal(legacyLibrary({ ...saved, doc: { ...saved.doc, audio: { duration: 3600.01 } } }), null);
   assert.equal(legacyLibrary({ file: saved.file }), null);
 });
+
+test('saved guide prompt migrates old settings and survives library settings changes', () => {
+  assert.equal(validateSettings({}).guidePrompt, DEFAULT_SETTINGS.guidePrompt);
+  const library = changeSettings(emptyLibrary(), {guidePrompt: '  自訂完整導讀。  '});
+  assert.equal(library.settings.guidePrompt, '自訂完整導讀。');
+  assert.equal(changeSettings(library, {subtitleSize:'large'}).settings.guidePrompt, '自訂完整導讀。');
+  for (const guidePrompt of ['', 'x'.repeat(8001), null]) assert.throws(() => validateSettings({guidePrompt}));
+});

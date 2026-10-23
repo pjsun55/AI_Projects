@@ -6,14 +6,14 @@ import { emptyVocabulary, addWord } from '../public/vocabulary.mjs';
 
 const vocabulary = () => addWord(emptyVocabulary(), { word: 'resilience', language: 'en', translation: '復原力', tags: ['生活'] }, { id: 'word', now: 100 });
 test('personal backup round-trips settings and vocabulary and excludes all other data and credential fields', async () => {
-  const library = emptyLibrary(); library.settings.geminiKey = 'EXCLUDED_CREDENTIAL_CANARY'; library.settings.audio = 'EXCLUDED_AUDIO_CANARY';
+  const library = emptyLibrary(); library.settings.guidePrompt = '依主題展開完整內容。'; library.settings.geminiKey = 'EXCLUDED_CREDENTIAL_CANARY'; library.settings.audio = 'EXCLUDED_AUDIO_CANARY';
   const book = vocabulary(); book.privateData = 'EXCLUDED_PRIVATE_CANARY'; book.words[0].sentence = 'EXCLUDED_SENTENCE_CANARY';
   const blob = personalBackup(library.settings, book);
   assert.equal(blob.type, 'application/json');
   assert.doesNotMatch(await blob.text(), /EXCLUDED_|albums|tracks|transcripts|audioFile/);
   const result = await readPersonalBackup(blob);
   assert.equal(result.vocabulary.words[0].translation, '復原力'); assert.equal(result.settings.maxMinutes, 25);
-  assert.equal(result.vocabulary.revision, 0);
+  assert.equal(result.vocabulary.revision, 0); assert.equal(result.settings.guidePrompt, library.settings.guidePrompt);
 });
 test('backup restore only builds a preview, preserves local albums/audio metadata, and never calls an API', async () => {
   const library = placeTrack(addAlbum(emptyLibrary(), 'My saved audio', 'album'), { id: 'track', title: 'Original', duration: 120, segments: [{ start: 0, end: 120, text: 'Original words.' }] }, 'album');

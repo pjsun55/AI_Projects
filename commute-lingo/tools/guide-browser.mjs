@@ -5,10 +5,11 @@ import { expect } from '@playwright/test';
 // Run for both engines and every phone/tablet viewport in browser-smoke.mjs.
 export async function runGuideBrowser(page, { version, output, onPhase = () => {} }) {
   const key = 'fixture_only_invalid_key_000000000000';
+  const customPrompt = '依主題完整說明前後關係，保留猜字線索。';
   const read = name => page.evaluate(async ({ version, name }) => (await import(`./storage.mjs?v=${version}`)).read(name), { version, name });
   const source = (await read('library-v2')).tracks.find(track => track.id === 'fixture-track').segments.map(cue => cue.text).join(' ');
   const quote = 'Sentence 1 is public test content for the commute reading layout.';
-  const content = { intro: '<img src=x onerror=alert(1)> 這是通勤聽力導讀的測試文字。', route: ['留意每一句表達的重點。'], vocabulary: [{ term: 'commute', pos: 'n.', meaning: '通勤', quote, clue: '從閱讀旅程的語境猜字義。' }], sentence: { quote, translation: '這是通勤閱讀版面測試的公開內容。', explanation: 'for 說明用途。' } };
+  const content = { intro: '<img src=x onerror=alert(1)> 這是通勤聽力導讀的測試文字。', route: ['旅途觀察\n<img src=x onerror=alert(1)> 留意每一句表達的重點，從完整語境理解主題及轉折。'], vocabulary: [{ term: 'commute', pos: 'n.', meaning: '通勤', quote, clue: '從閱讀旅程的語境猜字義。' }], sentence: { quote, translation: '這是通勤閱讀版面測試的公開內容。', explanation: 'for 說明用途。' } };
   let requests = 0;
   const route = async intercepted => {
     if (intercepted.request().method() === 'OPTIONS') {
@@ -19,7 +20,7 @@ export async function runGuideBrowser(page, { version, output, onPhase = () => {
     assert.equal(request.headers()['x-goog-api-key'], key);
     assert.ok(!request.url().includes(key) && !request.postData().includes(key));
     const verifying = body.contents[0].parts[0].text === 'Please reply with OK.';
-    if (!verifying) assert.equal(body.contents[0].parts[0].text, source);
+    if (!verifying) { assert.equal(body.contents[0].parts[0].text, source); assert.ok(body.systemInstruction.parts[0].text.startsWith(customPrompt + '\n\n')); }
     await intercepted.fulfill({ status: 200, contentType: 'text/event-stream', headers: { 'Access-Control-Allow-Origin': '*' }, body: 'data: ' + JSON.stringify({ candidates: [{ content: { parts: [{ text: verifying ? 'OK' : JSON.stringify(content) }] }, finishReason: 'STOP' }], usageMetadata: { totalTokenCount: 100 } }) + '\n\n' });
   };
   const pattern = 'https://generativelanguage.googleapis.com/**';
@@ -35,6 +36,17 @@ export async function runGuideBrowser(page, { version, output, onPhase = () => {
   assert.equal(requests, 0);
   onPhase('guide-encrypted-key');
   await page.locator('[data-tab="settings"]').click();
+  const defaultPrompt = await page.locator('#setting-guide-prompt').inputValue();
+  await page.locator('#setting-guide-prompt').fill(customPrompt);
+  await page.locator('#settings-form button[type=submit]').click();
+  await expect.poll(async () => (await read('library-v2')).settings.guidePrompt).toBe(customPrompt);
+  await page.locator('#reset-guide-prompt').click();
+  await expect(page.locator('#setting-guide-prompt')).toHaveValue(defaultPrompt);
+  assert.equal((await read('library-v2')).settings.guidePrompt, customPrompt);
+  await page.reload(); await page.waitForFunction(() => !document.getElementById('start-import').disabled);
+  await page.locator('[data-tab="settings"]').click();
+  await expect(page.locator('#setting-guide-prompt')).toHaveValue(customPrompt);
+  assert.equal(requests, 0);
   await page.locator('#gemini-key').fill(key); await page.locator('#save-gemini-key').click();
   await expect(page.locator('#gemini-key')).toHaveValue('');
   await expect.poll(async () => !!await read('gemini-key-v1')).toBe(true);
@@ -59,6 +71,9 @@ export async function runGuideBrowser(page, { version, output, onPhase = () => {
     await storage.commitLibrary({ ...library, revision: library.revision + 1, tracks: library.tracks.map(track => track.id === 'fixture-track' ? { ...track, transcriptStatus: 'complete' } : track) }, { expectedRevision: library.revision });
   }, version);
   await expect(page.locator('.guide-save-word')).toHaveCount(1); await expect(page.locator('#guide-content img')).toHaveCount(0);
+  await expect(page.locator('.guide-route strong')).toHaveText('旅途觀察');
+  await expect(page.locator('.guide-route p')).toContainText('<img src=x onerror=alert(1)>');
+  await expect(page.locator('.guide-intro')).toHaveCount(0);
   assert.equal(requests, 2);
   await expect(page.locator('#guide-status')).toContainText('已完成');
   await expect(page.locator('#subtitles-panel')).not.toBeVisible();

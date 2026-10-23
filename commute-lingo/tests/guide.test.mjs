@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { transcriptText, guideAvailable, guideFingerprint, guideAudioRange, validateGuide, GUIDE_SCHEMA, GUIDE_MAX_INPUT } from '../public/guide.mjs';
+import { transcriptText, guideAvailable, guideFingerprint, guideAudioRange, validateGuide, GUIDE_SCHEMA, GUIDE_MAX_INPUT, GUIDE_INSTRUCTION, GUIDE_OUTPUT_RULES, normalizeGuidePrompt } from '../public/guide.mjs';
 import { encryptApiKey, decryptApiKey, validateApiKey } from '../public/key-vault.mjs';
 import { generateGuide, verifyGeminiKey } from '../public/gemini.mjs';
 
@@ -31,7 +31,7 @@ test('validation whitelists teaching fields and rejects invented quotes, duplica
   const value = fixture(); value.untrusted = '<script>'; value.vocabulary[0].unknown = key;
   assert.deepEqual(validateGuide(value, source), fixture());
   const fragment = fixture(); fragment.vocabulary[0].term = 'all'; assert.throws(() => validateGuide(fragment, source));
-  for (const change of [v => { v.intro = '\0'; }, v => { v.route = Array(4).fill('多餘'); }, v => { v.vocabulary = Array(7).fill(v.vocabulary[0]); }, v => { v.vocabulary[0].quote = 'Invented quote.'; }, v => { v.vocabulary[0].term = 'unmentioned'; }, v => { v.vocabulary.push({ ...v.vocabulary[0] }); }, v => { v.sentence.quote = 'Invented sentence.'; }, v => { v.sentence.translation = 'x'.repeat(1201); }]) {
+  for (const change of [v => { v.intro = '\0'; }, v => { v.route = Array(7).fill('多餘'); }, v => { v.vocabulary = Array(7).fill(v.vocabulary[0]); }, v => { v.vocabulary[0].quote = 'Invented quote.'; }, v => { v.vocabulary[0].term = 'unmentioned'; }, v => { v.vocabulary.push({ ...v.vocabulary[0] }); }, v => { v.sentence.quote = 'Invented sentence.'; }, v => { v.sentence.translation = 'x'.repeat(1201); }]) {
     const invalid = fixture(); change(invalid); assert.throws(() => validateGuide(invalid, source));
   }
   assert.deepEqual(validateGuide({ intro: '短文導讀。', route: [], vocabulary: [], sentence: null }, source), { intro: '短文導讀。', route: [], vocabulary: [], sentence: null });
@@ -109,4 +109,36 @@ test('stalled headers time out after 180 seconds without retries', async context
   context.mock.timers.enable({ apis: ['setTimeout'] }); let calls = 0;
   const pending = generateGuide(options(async (_, init) => { calls++; return new Promise((resolve, reject) => init.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))); }));
   context.mock.timers.tick(180000); await assert.rejects(pending, error => error.code === 'TIMEOUT'); assert.equal(calls, 1);
+});
+
+test('a valid guide longer than 2400 characters accepts a terminal SSE event without a blank separator', async () => {
+  const value = fixture(); value.intro = '說明'.repeat(800); value.sentence.explanation = '句型'.repeat(500);
+  const body = JSON.stringify(value); assert.ok(body.length > 2400);
+  for (const ending of ['', '\n', '\r\n', '\n\n']) {
+    const result = await generateGuide(options(async () => new Response('data: ' + JSON.stringify(frame(body)) + ending, { headers: { 'Content-Type': 'text/event-stream' } })));
+    assert.deepEqual(result.content, value);
+  }
+});
+test('output truncation, missing completion, invalid JSON and source validation have distinct safe errors', async () => {
+  const changed = fixture(); changed.sentence.quote = 'Invented sentence.';
+  for (const [reply, code] of [[frame('{}', 'MAX_TOKENS'), 'OUTPUT_LIMIT'], [frame('{}', null), 'INCOMPLETE'], [frame('not json'), 'RESPONSE'], [frame(JSON.stringify(changed)), 'QUOTE']]) {
+    await assert.rejects(generateGuide(options(async () => sse([reply]))), error => error.code === code && !error.message.includes(key));
+  }
+});
+
+test('expanded roadmap and custom prompt preserve limits and request safeguards', async () => {
+  const prompt = '依主題完整解釋，保留因果與轉折。';
+  assert.equal(normalizeGuidePrompt('  ' + prompt + '  '), prompt);
+  for (const invalid of ['', 'x'.repeat(8001), '\0', 'AIza' + 'x'.repeat(35)]) assert.throws(() => normalizeGuidePrompt(invalid));
+  assert.notEqual(await guideFingerprint(source), await guideFingerprint(source, undefined, prompt));
+  const value = fixture(); value.route = Array.from({length:6}, (_, i) => `主題${i}\n` + '完整說明。'.repeat(100));
+  assert.deepEqual(validateGuide(value, source), value);
+  assert.throws(() => validateGuide({...value, route: ['x'.repeat(2401)]}, source));
+  await generateGuide({...options(async (_, init) => {
+    const body = JSON.parse(init.body);
+    assert.equal(body.systemInstruction.parts[0].text, prompt + '\n\n' + GUIDE_OUTPUT_RULES);
+    return sse([frame(JSON.stringify(value))]);
+  }), prompt});
+  await assert.rejects(generateGuide({...options(() => {throw Error('must not fetch');}), prompt: key}), /API Key/);
+  assert.ok(GUIDE_INSTRUCTION.includes('150–250'));
 });

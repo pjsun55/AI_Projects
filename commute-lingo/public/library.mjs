@@ -1,8 +1,9 @@
-import { normalizeSegments, groupSentences } from './core.mjs?v=0.2.21';
+import { GUIDE_INSTRUCTION, normalizeGuidePrompt } from './guide.mjs?v=0.2.22';
+import { normalizeSegments, groupSentences } from './core.mjs?v=0.2.22';
 
 export const LIBRARY_KEY = 'library-v2';
 export const MAX_AUDIO_MINUTES = 60;
-export const DEFAULT_SETTINGS = Object.freeze({ albumLimit: 3, trackLimit: 3, maxMinutes: 25, autoUpdate: true, subtitleSize: 'normal', icon: 'sunrise', language: 'en', model: 'tiny', repeatMode: 'off', autoGuide: false, geminiModel: 'gemini-3.5-flash-lite' });
+export const DEFAULT_SETTINGS = Object.freeze({ albumLimit: 3, trackLimit: 3, maxMinutes: 25, autoUpdate: true, subtitleSize: 'normal', icon: 'sunrise', language: 'en', model: 'tiny', repeatMode: 'off', autoGuide: false, geminiModel: 'gemini-3.5-flash-lite', guidePrompt: GUIDE_INSTRUCTION });
 export const ICONS = [
   { id: 'journey', title: '聲音旅程', caption: '沿著聲音，抵達下一站', color: '#963ee7' },
   { id: 'dialogue', title: '一句世界', caption: '耳朵聽見，對話展開', color: '#147c8b' },
@@ -24,6 +25,7 @@ export function validateSettings(value) {
   if (typeof settings.autoUpdate !== 'boolean') throw new Error('自動更新設定無效。');
   if (settings.geminiModel === 'gemini-3.8-flash') settings.geminiModel = 'gemini-3.5-flash-lite'; // Migrate removed model without losing local data.
   if (!['off', 'track', 'album'].includes(settings.repeatMode) || typeof settings.autoGuide !== 'boolean' || settings.geminiModel !== 'gemini-3.5-flash-lite') throw new Error('播放模式或導讀設定無效。');
+  settings.guidePrompt = normalizeGuidePrompt(settings.guidePrompt);
   settings.autoGuide = false; // Legacy preferences/backups adopt manual-only generation.
   // Only known preferences are persisted; credentials are never part of a library.
   return Object.fromEntries(Object.keys(DEFAULT_SETTINGS).map(key => [key, settings[key]]));
