@@ -100,6 +100,7 @@ export async function runGuideBrowser(page, { version, output, onPhase = () => {
   await expect(page.locator('#resume-card')).toBeVisible();
   await page.locator('#resume-card .round-button').click();
   await expect(page.locator('#player')).toBeVisible(); await expect(page.locator('#resume-card')).toBeHidden();
+  await page.waitForFunction(() => { const audio = document.getElementById('audio'); return audio.readyState >= 1 && !audio.seeking && Math.abs(audio.currentTime - 12) < 1; });
   await page.locator('#audio').evaluate(audio => audio.pause());
   assert.ok(Math.abs(await page.locator('#audio').evaluate(audio => audio.currentTime) - 12) < 1, 'Resume must retain the saved playback position');
   await page.locator('#player-close').click(); await page.locator('#mini-dismiss').click();

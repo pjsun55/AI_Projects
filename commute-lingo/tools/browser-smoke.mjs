@@ -203,7 +203,8 @@ try {
           await page.locator('#translation-play').click();
           await page.waitForFunction(() => !document.getElementById('audio').paused);
           await page.locator('#translation-play').click();
-          assert.equal(await page.locator('#audio').evaluate(audio => audio.paused && audio.src), excerptSource);
+          await expect.poll(() => page.locator('#audio').evaluate(audio => audio.paused)).toBe(true);
+          assert.equal(await page.locator('#audio').evaluate(audio => audio.src), excerptSource);
           assert.equal(mockedTranslations, translationsBeforeExcerpt);
           phase = `translation-close-resume-${size}`;
           await page.locator('#translation-close').click();
