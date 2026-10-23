@@ -1,8 +1,8 @@
-import * as storage from './storage.mjs?v=0.2.20';
-import { GEMINI_KEY, encryptApiKey, decryptApiKey } from './key-vault.mjs?v=0.2.20';
-import { generateGuide, verifyGeminiKey } from './gemini.mjs?v=0.2.20';
-import { transcriptText, guideAvailable, guideFingerprint, validateGuide } from './guide.mjs?v=0.2.20';
-import { normalizeWord, wordIdentity } from './vocabulary.mjs?v=0.2.20';
+import * as storage from './storage.mjs?v=0.2.21';
+import { GEMINI_KEY, encryptApiKey, decryptApiKey } from './key-vault.mjs?v=0.2.21';
+import { generateGuide, verifyGeminiKey } from './gemini.mjs?v=0.2.21';
+import { transcriptText, guideAvailable, guideFingerprint, validateGuide } from './guide.mjs?v=0.2.21';
+import { normalizeWord, wordIdentity } from './vocabulary.mjs?v=0.2.21';
 
 export function createGuideController({ getLibrary, getCurrent, getWords, saveWord, notify, openSettings, playQuote, broadcast, available = () => true }) {
   const $ = id => document.getElementById(id);
@@ -28,7 +28,7 @@ export function createGuideController({ getLibrary, getCurrent, getWords, saveWo
     const queued = queue.some(item => item.id === track.id);
     let content;
     try { if (record?.content) content = validateGuide(record.content, transcriptText(track)); } catch { /* Untrusted stored data. */ }
-    const reason = !guideAvailable(track) ? '請先完成字幕。' : !hasKey ? '請先在設定保存 Gemini API Key。' : keyBusy ? 'Key 處理中。' : !available() ? '資料處理中，請稍後。' : '';
+    const reason = !guideAvailable(track) ? '這一集尚無可用字幕。' : !hasKey ? '請先在設定保存 Gemini API Key。' : keyBusy ? 'Key 處理中。' : !available() ? '資料處理中，請稍後。' : '';
     const failed = notices.get(track.id) || (record?.status === 'failed' ? record.error : record?.status === 'running' && !running ? '上次導讀未完成，請手動重試。' : '');
     const phase = running ? 'running' : queued ? 'queued' : failed ? 'failed' : content ? 'ready' : 'missing';
     const elapsed = Math.max(0, Math.floor((Date.now() - (job?.startedAt || record?.request?.startedAt || Date.now())) / 1000));
@@ -141,7 +141,7 @@ export function createGuideController({ getLibrary, getCurrent, getWords, saveWo
     // Legacy automatic calls must never upload a transcript, including old preferences.
     if (automatic) return;
     if (!available() || keyBusy) { notices.set(id, '正在儲存資料或處理 Key，請稍後再按一次。'); render(); return; }
-    if (!guideAvailable(getLibrary().tracks.find(track => track.id === id))) { notices.set(id, '請先完成字幕。'); render(); return; }
+    if (!guideAvailable(getLibrary().tracks.find(track => track.id === id))) { notices.set(id, '這一集尚無可用字幕。'); render(); return; }
     if (queue.some(item => item.id === id)) return;
     notices.delete(id);
     if (active?.id === id) {

@@ -15,10 +15,12 @@ function sse(values, { split = false, suffix = '' } = {}) {
 }
 const options = fetchImpl => ({ key, model: 'gemini-3.5-flash-lite', text: source, fetchImpl });
 
-test('guide source and fingerprint preserve content and exclude incomplete transcripts', async () => {
+test('guide eligibility uses available text rather than timestamp completeness', async () => {
   const track = { segments: [{ text: 'The train\n crosses' }, { text: 'a valley.' }] };
   assert.equal(transcriptText(track), 'The train crosses a valley.'); assert.ok(guideAvailable(track));
-  for (const transcriptStatus of ['partial', 'audio-only']) assert.equal(guideAvailable({ ...track, transcriptStatus }), false);
+  for (const transcriptStatus of ['complete', 'partial', 'audio-only']) assert.equal(guideAvailable({ ...track, transcriptStatus }), true);
+  assert.equal(guideAvailable({ transcriptStatus: 'partial', segments: [{ text: '   ' }] }), false);
+  assert.equal(guideAvailable({ transcriptStatus: 'audio-only', segments: [] }), false);
   assert.equal(guideAvailable({ segments: [] }), false);
   const fingerprint = await guideFingerprint(source); assert.match(fingerprint, /^[a-f0-9]{64}$/);
   assert.equal(fingerprint, await guideFingerprint(source));

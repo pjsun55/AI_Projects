@@ -1,4 +1,4 @@
-import { normalizeWord } from './vocabulary.mjs?v=0.2.20';
+import { normalizeWord } from './vocabulary.mjs?v=0.2.21';
 
 export const GUIDE_MODEL = 'gemini-3.5-flash-lite';
 export const GUIDE_PROMPT_VERSION = 1;
@@ -7,7 +7,7 @@ export const GUIDE_INSTRUCTION = '為 CEFR B1–B2 英文學習者製作繁體�
 export function transcriptText(track) {
   return (Array.isArray(track?.segments) ? track.segments : []).map(segment => typeof segment.text === 'string' ? segment.text : '').join(' ').replace(/\s+/gu, ' ').trim();
 }
-export function guideAvailable(track) { return !!transcriptText(track) && !['partial', 'audio-only'].includes(track?.transcriptStatus); }
+export function guideAvailable(track) { return !!transcriptText(track); }
 export function guideAudioRange(cues, quote) {
   if (typeof quote !== 'string' || !quote.trim()) return null;
   let text = '';

@@ -27,7 +27,7 @@ export async function runGuideBrowser(page, { version, output, onPhase = () => {
   onPhase('guide-removed-model-migration');
   await page.evaluate(async version => {
     const storage = await import(`./storage.mjs?v=${version}`), library = await storage.read('library-v2');
-    await storage.commitLibrary({ ...library, revision: library.revision + 1, settings: { ...library.settings, geminiModel: 'gemini-3.8-flash', autoGuide: true } }, { expectedRevision: library.revision });
+    await storage.commitLibrary({ ...library, revision: library.revision + 1, settings: { ...library.settings, geminiModel: 'gemini-3.8-flash', autoGuide: true }, tracks: library.tracks.map(track => track.id === 'fixture-track' ? { ...track, transcriptStatus: 'partial' } : track) }, { expectedRevision: library.revision });
   }, version);
   await page.reload(); await page.waitForFunction(() => !document.getElementById('start-import').disabled);
   await expect(page.locator('#setting-gemini-model option')).toHaveCount(1);
@@ -54,6 +54,10 @@ export async function runGuideBrowser(page, { version, output, onPhase = () => {
   await expect(page.locator('#guide-status')).toContainText('尚未產生'); assert.equal(requests, 1);
   await page.locator('#generate-guide').click();
   await expect.poll(async () => (await read('guide:fixture-track'))?.status).toBe('ready');
+  await page.evaluate(async version => {
+    const storage = await import(`./storage.mjs?v=${version}`), library = await storage.read('library-v2');
+    await storage.commitLibrary({ ...library, revision: library.revision + 1, tracks: library.tracks.map(track => track.id === 'fixture-track' ? { ...track, transcriptStatus: 'complete' } : track) }, { expectedRevision: library.revision });
+  }, version);
   await expect(page.locator('.guide-save-word')).toHaveCount(1); await expect(page.locator('#guide-content img')).toHaveCount(0);
   assert.equal(requests, 2);
   await expect(page.locator('#guide-status')).toContainText('已完成');

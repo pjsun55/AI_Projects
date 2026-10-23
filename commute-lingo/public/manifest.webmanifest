@@ -3,7 +3,7 @@
   "name": "通勤學語言 · CommuteLingo",
   "short_name": "通勤學語言",
   "lang": "zh-Hant",
-  "start_url": "./?v=0.2.20",
+  "start_url": "./?v=0.2.21",
   "scope": "./",
   "display": "standalone",
   "orientation": "any",
