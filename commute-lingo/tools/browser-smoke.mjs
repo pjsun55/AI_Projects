@@ -304,7 +304,36 @@ try {
             const storage = await import(`./storage.mjs?v=${version}`), blob = await storage.read('audio:fixture-track');
             if (!(blob instanceof Blob)) return { missingAudio: true };
             const bytes = new Uint8Array(await blob.arrayBuffer());
-            return { size: blob.size, type: blob.type, byteLength: bytes.length, header: [...bytes.slice(0, 12)].map(byte => byte.toString(16).padStart(2, '0')).join('') };
+            const result = { size: blob.size, type: blob.type, byteLength: bytes.length, header: [...bytes.slice(0, 12)].map(byte => byte.toString(16).padStart(2, '0')).join('') };
+            // Inspect only the known generated silent PCM fixture. Never probe
+            // arbitrary saved audio or print its URL, bytes or transcript.
+            if (bytes.length !== 120 * 32000 + 44 || blob.type !== 'audio/wav') return result;
+            const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+            const ascii = (start, length) => String.fromCharCode(...bytes.slice(start, start + length));
+            const pcm = { riff: ascii(0, 4), riffSize: view.getUint32(4, true), wave: ascii(8, 4), fmt: ascii(12, 4), fmtSize: view.getUint32(16, true), format: view.getUint16(20, true), channels: view.getUint16(22, true), sampleRate: view.getUint32(24, true), byteRate: view.getUint32(28, true), blockAlign: view.getUint16(32, true), bits: view.getUint16(34, true), data: ascii(36, 4), dataSize: view.getUint32(40, true) };
+            const expected = { riff: 'RIFF', riffSize: bytes.length - 8, wave: 'WAVE', fmt: 'fmt ', fmtSize: 16, format: 1, channels: 1, sampleRate: 16000, byteRate: 32000, blockAlign: 2, bits: 16, data: 'data', dataSize: bytes.length - 44 };
+            if (JSON.stringify(pcm) !== JSON.stringify(expected) || !bytes.subarray(44).every(byte => byte === 0)) return { ...result, knownFixture: false };
+            result.knownFixture = true; result.pcm = pcm;
+            result.sha256 = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map(byte => byte.toString(16).padStart(2, '0')).join('');
+            // Diagnostic probes run only after the original assertion failed.
+            // They cannot turn a failed scenario into a pass or retry playback.
+            const probe = source => new Promise(resolve => {
+              const audio = new Audio(); let settled = false;
+              const finish = status => {
+                if (settled) return; settled = true; clearTimeout(timer);
+                const state = { status, ready: audio.readyState, network: audio.networkState, duration: Number.isFinite(audio.duration) ? audio.duration : null, error: audio.error?.code, support: audio.canPlayType('audio/wav') };
+                audio.onloadeddata = audio.oncanplay = audio.onerror = null;
+                audio.removeAttribute('src'); audio.load(); resolve(state);
+              };
+              const timer = setTimeout(() => finish('timeout'), 6000);
+              audio.preload = 'auto'; audio.onloadeddata = audio.oncanplay = () => { if (audio.readyState >= 2) finish('loaded'); };
+              audio.onerror = () => finish('error'); audio.src = source; audio.load();
+            });
+            const source = document.getElementById('audio').currentSrc;
+            if (source.startsWith('blob:' + location.origin + '/')) result.originalUrlProbe = await probe(source);
+            const copied = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: 'audio/wav' }));
+            try { result.copiedBytesProbe = await probe(copied); } finally { URL.revokeObjectURL(copied); }
+            return result;
           }, version).catch(failure => ({ readError: failure.message }));
           failures.push(new Error(JSON.stringify({ browser: name, viewport, phase, mockedTranslations, offlineState, layoutState, sourceControlState, mediaState, fixtureState, message: error.message, stack: error.stack }), { cause: error }));
         } finally { await context.close(); }
