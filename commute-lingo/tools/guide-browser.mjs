@@ -95,10 +95,13 @@ export async function runGuideBrowser(page, { version, output, onPhase = () => {
   assert.ok(Math.abs((await read('progress:fixture-track')).position - 12) < 0.2);
   await page.reload(); await page.waitForFunction(() => !document.getElementById('start-import').disabled);
   await expect(page.locator('#mini-player')).not.toBeVisible();
+  await page.locator('[data-tab="playlist"]').click();
+  await expect(page.locator('#view-playlist')).toBeVisible();
   await expect(page.locator('#resume-card')).toBeVisible();
   await page.locator('#resume-card .round-button').click();
   await expect(page.locator('#player')).toBeVisible(); await expect(page.locator('#resume-card')).toBeHidden();
   await page.locator('#audio').evaluate(audio => audio.pause());
+  assert.ok(Math.abs(await page.locator('#audio').evaluate(audio => audio.currentTime) - 12) < 1, 'Resume must retain the saved playback position');
   await page.locator('#player-close').click(); await page.locator('#mini-dismiss').click();
   onPhase('guide-key-removal');
   await page.locator('[data-tab="settings"]').click(); await page.locator('#remove-gemini-key').click();

@@ -678,6 +678,10 @@ try {
   const staleSnapshot = { sessionId: 'old-session', trackId: guidedTrack.id, position: 3, queue: [guidedTrack.id], speed: 1 };
   check(audio.paused && (await storageModule.read(`progress:${guidedTrack.id}`)).position === 1.2 && !(await storageModule.savePlayer(staleSnapshot)) && await storageModule.read('player-v2') === null, 'dismiss stops playback, retains per-track position and rejects late progress resurrection');
   check(!$('resume-card').hidden && $('resume-card').textContent.includes(guidedTrack.title) && (await storageModule.read('last-listened-v1')).trackId === guidedTrack.id, 'dismissing the top player shows one resume card with a persisted nonplaying bookmark');
+  document.querySelector('[data-tab="vocabulary"]').dispatchEvent(event('click'));
+  check($('view-playlist').hidden && !$('resume-card').hidden, 'resume cards belong to the playlist even when another tab is selected');
+  document.querySelector('[data-tab="playlist"]').dispatchEvent(event('click'));
+  check(!$('view-playlist').hidden && !$('resume-card').hidden, 'returning to the playlist makes the saved resume card available');
   $('resume-card').querySelector('.round-button').dispatchEvent(event('click'));
   await until(() => $('player').open && !audio.paused, 'resume card playback');
   check(audio.currentTime === 1.2 && $('resume-card').hidden, 'the resume card reopens the saved position and hides itself while the top bar is active');
