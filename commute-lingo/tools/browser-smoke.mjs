@@ -170,6 +170,13 @@ try {
           phase = `translation-layout-${size}`;
           await expect(page.locator('#translation-text')).toHaveText(translationFixture);
           assert.ok(mockedTranslations > 0, 'The translation fixture must be provided by the route, not the real service.');
+          phase = `translation-native-play-${size}`;
+          await page.locator('#audio').evaluate(async audio => {
+            try { await audio.play(); } catch (error) { if (error.name !== 'AbortError') throw error; }
+          });
+          await expect(page.locator('#translation-panel')).toBeVisible();
+          await expect.poll(() => page.locator('#audio').evaluate(audio => audio.paused)).toBe(true);
+          phase = `translation-layout-${size}`;
           // Require both complete fixture content and settled scroll geometry.
           // Poll the same layout requirements rather than sampling once.
           await expect.poll(async () => {
@@ -353,6 +360,13 @@ try {
             return result;
           }, version).catch(failure => ({ readError: failure.message }));
           failures.push(new Error(JSON.stringify({ browser: name, viewport, phase, mockedTranslations, offlineState, layoutState, sourceControlState, mediaState, fixtureState, message: error.message, stack: error.stack }), { cause: error }));
+          // GitHub truncates each annotation at 4,096 characters. Emit a compact
+          // annotation per scenario so later failures remain independently visible.
+          if (process.env.GITHUB_ACTIONS === 'true') {
+            const detail = JSON.stringify({ browser: name, viewport, phase, message: String(error.message).slice(0, 1200), layoutState,
+              media: mediaState && { paused: mediaState.paused, ready: mediaState.ready, time: mediaState.time, error: mediaState.error, translationHidden: mediaState.translationHidden } });
+            console.error(`::error title=CommuteLingo ${name} ${viewport.width} ${phase}::${detail.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A')}`);
+          }
         } finally { await context.close(); }
       }
     } finally { await browser?.close(); }

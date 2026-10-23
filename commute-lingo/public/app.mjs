@@ -988,7 +988,13 @@ $('translation-play').onclick = safe(async () => {
   updateTimeline();
 });
 $('regenerate-subtitles').onclick = safe(() => currentTrack() && regenerateTranscript(state.current));
-audio.addEventListener('play', () => { if (!translationAudio.active) { closeTranslation(); subtitleFollow.resume(); } updatePlayer(); if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'; });
+audio.addEventListener('play', () => {
+  // Normal play actions close translation before calling audio.play(). A late
+  // native play event must not undo a newer pause-to-read action.
+  if (state.translation && !translationAudio.active) { audio.pause(); updatePlayer(); return; }
+  if (!translationAudio.active) { closeTranslation(); subtitleFollow.resume(); }
+  updatePlayer(); if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
+});
 audio.addEventListener('pause', () => { updatePlayer(); saveProgress(); if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'; });
 audio.addEventListener('timeupdate', () => { updateTimeline(); if (performance.now() - state.lastProgressSave > 8000) { state.lastProgressSave = performance.now(); saveProgress(); } });
 audio.addEventListener('seeked', () => { updateTimeline(); if (!state.translation) subtitleFollow.resume(); });

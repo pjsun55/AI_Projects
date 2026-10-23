@@ -224,6 +224,8 @@ try {
   cue.dispatchEvent(event('pointerdown', { button: 0, clientX: 10, clientY: 10 }));
   await until(() => !$('translation-panel').hidden && $('translation-text').textContent, 'long-press translation');
   check(audio.paused && translated === 1, 'long press pauses playback and translates the selected sentence');
+  await audio.play();
+  check(audio.paused && !$('translation-panel').hidden && translated === 1, 'a delayed native play event cannot close a newer translation or resume its paused audio');
   check(translatedTexts[0] === completeFirstCue && $('translation-original').textContent === completeFirstCue && cue.classList.contains('translating') && !$('subtitle-list').children[1].querySelector('.sentence-text').classList.contains('translating'), 'long-pressing a card translates and marks only its complete original text');
   cue.dispatchEvent(event('click'));
   check(audio.paused && !$('translation-panel').hidden, 'the click after a long press never seeks or resumes playback');
