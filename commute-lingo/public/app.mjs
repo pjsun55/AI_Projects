@@ -717,10 +717,12 @@ async function selectTrack(id, { queue = [id], autoplay = false, expand = false,
     renderSubtitles(); updatePlayer(); renderPlaylist(); updateMediaSession();
     if (expand) openPlayer();
     const snapshot = { sessionId, trackId: id, queue: [...state.queue], position: start, speed: audio.playbackRate };
-    progressChain = progressChain.catch(() => {}).then(() => token === state.playerToken && playerSession === sessionId ? storage.savePlayer(snapshot, { activate: true }) : undefined);
+    // Persist player actions in their captured order, including a later dismiss.
+    // Start playback in this turn: waiting for IDB must not override a newer pause.
+    progressChain = progressChain.catch(() => {}).then(() => storage.savePlayer(snapshot, { activate: true }));
+    if (autoplay) play();
     await progressChain;
     if (token !== state.playerToken) return;
-    if (autoplay) play();
     void guides.refresh().catch(() => {});
     saveProgress();
     // Prepare the album queue while in foreground so the next track doesn't
@@ -1049,12 +1051,14 @@ async function boot() {
     state.vocabulary = vocabulary ? validateVocabulary(vocabulary) : emptyVocabulary();
     library.settings = validateSettings(library.settings); state.library = library; state.ready = true;
     await guides.refresh();
-    render(); $('start-import').disabled = false;
+    render();
+    const restoreToken = state.playerToken;
     const savedPlayer = await storage.read('player-v2');
-    if (savedPlayer && library.tracks.some(track => track.id === savedPlayer.trackId)) {
+    if (restoreToken === state.playerToken && savedPlayer && library.tracks.some(track => track.id === savedPlayer.trackId)) {
       if ([...$('playback-speed').options].some(option => option.value === String(savedPlayer.speed))) $('playback-speed').value = savedPlayer.speed;
       await selectTrack(savedPlayer.trackId, { queue: Array.isArray(savedPlayer.queue) ? savedPlayer.queue : [savedPlayer.trackId], position: savedPlayer.position });
     }
+    $('start-import').disabled = false;
     if (globalThis.BroadcastChannel) {
       state.channel = new BroadcastChannel('commute-lingo-library-v2');
       state.channel.onmessage = safe(async ({ data }) => {

@@ -123,6 +123,18 @@ try {
   Object.assign(context, { document, window, location, history: { replaceState(_, __, hash) { location.hash = hash; } }, screen, matchMedia: () => ({ matches: true }), navigator: { wakeLock, storage: { estimate: async () => ({ usage: 1024, quota: 1000000000 }), persisted: async () => false, persist: async () => false }, mediaSession: { setActionHandler() {}, setPositionState() {} } }, caches: { keys: async () => [...fakeCaches.keys()], delete: async key => fakeCaches.delete(key) }, indexedDB: fake.namespace.indexedDB, IDBKeyRange: fake.namespace.IDBKeyRange, Audio: Probe, OfflineAudioContext: Context, Worker, fetch: runtimeFetch });
   await evaluate(await load(new URL(`../public/app.mjs?v=${version}`, import.meta.url).href));
   const storageModule = (await load(new URL(`../public/storage.mjs?v=${version}`, import.meta.url).href)).namespace;
+  const PlayerStore = fake.namespace.IDBObjectStore, originalPlayerPut = PlayerStore.prototype.put;
+  let holdPlayerCompletion = false;
+  const heldPlayerCompletions = [];
+  PlayerStore.prototype.put = function(value, key) {
+    const result = originalPlayerPut.call(this, value, key);
+    if (holdPlayerCompletion && key === 'player-v2' && value?.sessionId) {
+      holdPlayerCompletion = false;
+      const complete = this.transaction.oncomplete;
+      this.transaction.oncomplete = event => heldPlayerCompletions.push(() => complete(event));
+    }
+    return result;
+  };
   const library = () => storageModule.read('library-v2');
   const click = id => $(id).dispatchEvent(event('click'));
   const submit = id => $(id).dispatchEvent(event('submit'));
@@ -203,7 +215,13 @@ try {
   check(!(await storageModule.read(`audio:${oldId}`)) && (await library()).tracks.length === 3, 'explicit replacement removes only the chosen old audio');
   const activeTrack = (await library()).tracks[0];
   const playRow = [...$('playlist-tracks').querySelectorAll('.track-main')].find(element => element.textContent.includes(activeTrack.title));
-  playRow.dispatchEvent(event('click')); await until(() => $('player').open && !audio.paused, 'track playback');
+  holdPlayerCompletion = true;
+  playRow.dispatchEvent(event('click'));
+  await until(() => heldPlayerCompletions.length === 1, 'player activation persistence held');
+  check($('player').open && !audio.paused, 'autoplay begins without waiting for progress persistence');
+  audio.pause(); heldPlayerCompletions.shift()(); await delay(20);
+  check(audio.paused, 'a delayed player save cannot override a newer pause');
+  click('player-play'); await until(() => $('player').open && !audio.paused, 'track playback');
   check($('subtitles-panel').hidden, 'opening a new track keeps subtitles hidden');
   const assignmentsBeforeReopen = audioAssignments;
   audio.currentTime = 1.25; click('player-close'); await delay(10);
