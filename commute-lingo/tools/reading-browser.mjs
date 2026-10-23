@@ -64,7 +64,8 @@ export async function runReadingBrowser(page, { version, output, onPhase = () =>
   await expect(page.locator('.subtitle-cue')).toHaveCount(2);
   await expect(page.locator('.reading-pages')).toHaveCount(0);
   await expect(page.locator('.spoken-word')).toHaveCount(0);
-  await expect(page.locator('#transcript-status')).toContainText('只有整段時間');
+  await expect(page.locator('#transcript-notice')).toHaveCount(0);
+  await expect(page.locator('#toggle-subtitles')).toHaveAttribute('aria-label', '句子字幕');
   await page.screenshot({ path: new URL('legacy-sentence.png', output).pathname });
   await page.locator('#player-close').click();
   await page.evaluate(async ({ version, original }) => {

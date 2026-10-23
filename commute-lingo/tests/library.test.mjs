@@ -19,6 +19,11 @@ test('repeat modes retain a full album when starting in the middle, wrap and exc
   assert.deepEqual(nextPlayback(library, 'two', ['two', 'three']), { id: 'two', queue: ['two'] });
   for (const input of [{ repeatMode: 'infinite' }, { autoGuide: 'yes' }, { geminiModel: '../other' }]) assert.throws(() => validateSettings(input));
 });
+test('guide generation is manual for new, existing and restored automatic preferences', () => {
+  assert.equal(DEFAULT_SETTINGS.autoGuide, false);
+  assert.equal(validateSettings({ autoGuide: true }).autoGuide, false);
+  assert.equal(changeSettings(emptyLibrary(), { autoGuide: true }).settings.autoGuide, false);
+});
 test('defaults and hard limits match the requested 3 albums / 3 per album / 25 minutes', () => {
   assert.deepEqual([DEFAULT_SETTINGS.albumLimit, DEFAULT_SETTINGS.trackLimit, DEFAULT_SETTINGS.maxMinutes], [3, 3, 25]);
   assert.doesNotThrow(() => validateSettings({ albumLimit: 5, trackLimit: 5, maxMinutes: 60 }));

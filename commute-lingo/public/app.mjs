@@ -1,23 +1,23 @@
-import { readingCues, activeWord } from './reading.mjs?v=0.2.18';
-import { formatTime, findActive, transcriptCoverage, sentenceTexts } from './core.mjs?v=0.2.18';
-import * as storage from './storage.mjs?v=0.2.18';
-import { createTranslator } from './translation.mjs?v=0.2.18';
-import { DEFAULT_SETTINGS, LIBRARY_KEY, emptyLibrary, validateSettings, title, tracksIn, addAlbum, removeAlbum, removeTrack, rename, placeTrack, changeSettings, libraryBytes, playbackQueue, nextPlayback, sentenceTarget, sentencesFor, legacyLibrary, newId } from './library.mjs?v=0.2.18';
-import { createGuideController } from './guide-controller.mjs?v=0.2.18';
-import { guideAudioRange } from './guide.mjs?v=0.2.18';
-import { importPodcast, importAudioFile, transcribeSavedAudio } from './source.mjs?v=0.2.18';
-import { icon, fillIcons } from './icons.mjs?v=0.2.18';
-import { longPress, isMobileLandscape } from './gestures.mjs?v=0.2.18';
-import { personalBackup, readPersonalBackup, planPersonalRestore } from './backup.mjs?v=0.2.18';
-import { VOCABULARY_KEY, LANGUAGES, WORD_STATUSES, emptyVocabulary, validateVocabulary, validateWord, normalizeWord, wordIdentity, addWord, editWord, needsLookup } from './vocabulary.mjs?v=0.2.18';
-import { lookupDictionary } from './dictionary.mjs?v=0.2.18';
-import { createSubtitleFollow, subtitleScrollTop, sentenceReadingParts, createAudioExcerpt } from './subtitles.mjs?v=0.2.18';
-import { createUpdater, reloadVersion } from './updates.mjs?v=0.2.18';
-import { holdScreenAwake } from './wake-lock.mjs?v=0.2.18';
+import { readingCues, activeWord } from './reading.mjs?v=0.2.19';
+import { formatTime, findActive, transcriptCoverage, sentenceTexts } from './core.mjs?v=0.2.19';
+import * as storage from './storage.mjs?v=0.2.19';
+import { createTranslator } from './translation.mjs?v=0.2.19';
+import { DEFAULT_SETTINGS, LIBRARY_KEY, emptyLibrary, validateSettings, title, tracksIn, addAlbum, removeAlbum, removeTrack, rename, placeTrack, changeSettings, libraryBytes, playbackQueue, nextPlayback, sentenceTarget, sentencesFor, legacyLibrary, newId } from './library.mjs?v=0.2.19';
+import { createGuideController } from './guide-controller.mjs?v=0.2.19';
+import { guideAudioRange } from './guide.mjs?v=0.2.19';
+import { importPodcast, importAudioFile, transcribeSavedAudio } from './source.mjs?v=0.2.19';
+import { icon, fillIcons } from './icons.mjs?v=0.2.19';
+import { longPress, isMobileLandscape } from './gestures.mjs?v=0.2.19';
+import { personalBackup, readPersonalBackup, planPersonalRestore } from './backup.mjs?v=0.2.19';
+import { VOCABULARY_KEY, LANGUAGES, WORD_STATUSES, emptyVocabulary, validateVocabulary, validateWord, normalizeWord, wordIdentity, addWord, editWord, needsLookup } from './vocabulary.mjs?v=0.2.19';
+import { lookupDictionary } from './dictionary.mjs?v=0.2.19';
+import { createSubtitleFollow, subtitleScrollTop, sentenceReadingParts, createAudioExcerpt } from './subtitles.mjs?v=0.2.19';
+import { createUpdater, reloadVersion } from './updates.mjs?v=0.2.19';
+import { holdScreenAwake } from './wake-lock.mjs?v=0.2.19';
 
 const $ = id => document.getElementById(id);
 const audio = $('audio');
-const state = { library: emptyLibrary(), vocabulary: emptyVocabulary(), wordSelection: null, wordLookup: null, wordLimit: 40, restoring: false, ready: false, view: 'playlist', album: null, current: null, queue: [], urls: new Map(), sentences: [], active: -1, activeWord: -1, seeking: false, playerToken: 0, lastProgressSave: 0, translation: null, pending: null, file: null, job: null, epoch: 0, writing: false, clearing: false, gestureCleanups: [], legacy: null, backup: null, updating: false, settingsDirty: false, loadingAudio: 0 };
+const state = { library: emptyLibrary(), vocabulary: emptyVocabulary(), wordSelection: null, wordLookup: null, wordLimit: 40, restoring: false, ready: false, view: 'playlist', album: null, current: null, resumeTrack: null, queue: [], urls: new Map(), sentences: [], active: -1, activeWord: -1, seeking: false, playerToken: 0, lastProgressSave: 0, translation: null, pending: null, file: null, job: null, epoch: 0, writing: false, clearing: false, gestureCleanups: [], legacy: null, backup: null, updating: false, settingsDirty: false, loadingAudio: 0 };
 const subtitleFollow = createSubtitleFollow({ onFollow: () => highlight(true), canResume: () => !audio.paused && !document.hidden && $('player').open && !$('subtitles-panel').hidden && !state.translation });
 const translationAudio = createAudioExcerpt({ audio, onChange: playing => {
   $('translation-play').textContent = playing ? '停止原音' : '播放這段原音';
@@ -36,7 +36,7 @@ const currentTrack = () => state.library.tracks.find(track => track.id === state
 const albumOf = track => state.library.albums.find(album => album.id === track?.albumId);
 const safe = action => (...args) => { try { return Promise.resolve(action(...args)).catch(error => notify(error.message, true)); } catch (error) { notify(error.message, true); } };
 const updater = createUpdater({
-  serviceWorker: navigator.serviceWorker, version: '0.2.18',
+  serviceWorker: navigator.serviceWorker, version: '0.2.19',
   isAuto: () => state.library.settings.autoUpdate,
   visible: () => !document.hidden,
   canUpdate: () => state.ready && audio.paused && !guides.busy && !$('gemini-key').value && !state.loadingAudio && !state.job && !state.pending && !state.writing && !state.clearing && !state.backup && !state.restoring && !state.wordLookup && !state.translation && !state.settingsDirty && !$('player').open && !$('action-dialog').open && !$('source-url').value.trim() && !state.file && !document.activeElement?.matches?.('input,select,textarea'),
@@ -168,14 +168,20 @@ function renderPlaylist() {
   else $('track-count').textContent = `${tracks.length} 集`;
   tracks.forEach(track => root.append(trackRow(track)));
   if (!tracks.length) empty(root, '今天想聽些什麼？', '貼上一個 Podcast 單集連結，字幕就交給我們。', '匯入來源', () => showView('import'));
+  renderResume();
+}
+function renderResume() {
   const resume = $('resume-card'); resume.replaceChildren();
-  const track = currentTrack();
+  const track = !state.current && !state.clearing && state.library.tracks.find(item => item.id === state.resumeTrack);
+  resume.hidden = !track;
   if (track) {
     const card = node('div', 'resume-card'); card.append(cover(node('div', 'cover track-cover'), track.albumId));
-    const body = button('', 'track-main', () => openPlayer()); body.append(node('small', '', '接著上次，繼續聽'), node('strong', '', track.title));
-    card.append(body, button('繼續播放', 'round-button', play, 'play')); resume.append(card);
+    const resumePlayback = () => selectTrack(track.id, { expand: true, autoplay: true });
+    const body = button('', 'track-main', resumePlayback); body.append(node('small', '', '接著上次，繼續聽'), node('strong', '', track.title));
+    card.append(body, button('繼續播放', 'round-button', resumePlayback, 'play')); resume.append(card);
   }
 }
+
 function renderLibrary() {
   const root = $('library-albums'); root.replaceChildren();
   $('library-capacity').textContent = `${state.library.albums.length} / ${state.library.settings.albumLimit} 個專輯`;
@@ -194,7 +200,6 @@ function renderSettings() {
   const settings = state.library.settings;
   for (const [id, value] of [['setting-albums', settings.albumLimit], ['setting-tracks', settings.trackLimit], ['setting-minutes', settings.maxMinutes], ['setting-subtitles', settings.subtitleSize], ['setting-language', settings.language], ['setting-model', settings.model], ['setting-gemini-model', settings.geminiModel]]) $(id).value = value;
   $('setting-auto-update').checked = settings.autoUpdate;
-  $('setting-auto-guide').checked = settings.autoGuide;
   applyAppearance(settings);
 }
 async function commitWords(next) {
@@ -352,7 +357,7 @@ function applyAppearance(settings) {
   document.documentElement.style.setProperty('--subtitle-size', { normal: '18.4px', large: '22.4px', xlarge: '27.2px' }[settings.subtitleSize]);
   $('brand-icon').src = `./icon-${settings.icon}.svg`; $('favicon').href = `./icon-${settings.icon}.svg`;
   $('touch-icon').href = `./icon-${settings.icon}-192.png`;
-  $('manifest').href = `./manifest-${settings.icon}.webmanifest?v=0.2.18`;
+  $('manifest').href = `./manifest-${settings.icon}.webmanifest?v=0.2.19`;
 }
 async function refreshStorage() {
   const total = libraryBytes(state.library);
@@ -540,7 +545,6 @@ async function regenerateTranscript(id) {
     $('import-progress').hidden = true; showView('playlist');
     if (state.current === id) openPlayer();
     notify(transcript.transcriptStatus === 'partial' ? transcriptSummary(transcript) : '已使用保存的音訊重新產生字幕，沒有重新下載音檔。');
-    if (transcript.transcriptStatus === 'complete') guides.start(id, { automatic: true });
   } catch (error) {
     if (epoch === state.epoch) { state.job = null; setImportProgress({ message: `${error.name === 'AbortError' ? '字幕更新已停止。' : error.message} 原有音訊與字幕已保留。`, error: true }); }
   } finally { await awake.release(); }
@@ -577,7 +581,6 @@ async function finishImport() {
       if (replaceTrack && !replaceTrack.value) throw new Error('請選擇要替換的音訊。');
       next = placeTrack(next, { ...pending.track, title: name.value }, albumId, replaceTrack?.value);
       await commit(next, { audio: { id: pending.track.id, blob: pending.blob } });
-      if (pending.track.transcriptStatus === 'complete') guides.start(pending.track.id, { automatic: true });
       state.pending = null; return true;
     }
   });
@@ -612,7 +615,7 @@ async function translateSentence(index, selectedText) {
 function renderSubtitles() {
   state.gestureCleanups.forEach(cleanup => cleanup()); state.gestureCleanups = [];
   const root = $('subtitle-list'); root.replaceChildren();
-  if (!state.sentences.length) root.append(node('p', 'small', '目前尚無字幕。原音可正常播放，也可稍後重新產生字幕。'));
+  if (!state.sentences.length) root.append(node('p', 'small', '尚無字幕'));
   state.sentences.forEach((cue, index) => {
     const row = node('div', 'subtitle-cue');
     const sentence = node('button', 'sentence-text'); sentence.type = 'button';
@@ -627,8 +630,8 @@ function renderSubtitles() {
     sentence.onclick = safe(event => { if (!event.defaultPrevented) seekPlayback(cue.start, true); });
     row.append(sentence);
     if (cue.words?.length) row.classList.add('timed-reading');
-    if (cue.incomplete) row.append(node('small', '', '句尾可能不完整，請核對後續聲音。'));
-    if (cue.timingUncertain) row.append(node('small', '', '此段只提供較粗的時間範圍，請對照音訊。'));
+    if (cue.incomplete) row.append(node('small', '', '句尾未完整'));
+    if (cue.timingUncertain) row.append(node('small', '', '時間範圍估計'));
     root.append(row);
   });
   state.active = state.activeWord = -1; highlight();
@@ -707,7 +710,7 @@ async function selectTrack(id, { queue = [id], autoplay = false, expand = false,
     if (!url) url = await prepareURL(id);
     if (token !== state.playerToken) return;
     const saved = position === undefined && !reuse ? await storage.read(`progress:${id}`) : null; if (token !== state.playerToken) return;
-    state.current = id; state.queue = queue.filter(item => state.library.tracks.some(track => track.id === item));
+    state.current = id; state.resumeTrack = id; state.queue = queue.filter(item => state.library.tracks.some(track => track.id === item));
     const sessionId = crypto.randomUUID(); playerSession = sessionId;
     state.sentences = readingCues(sentencesFor(track), track.language); if (!reuse) audio.src = url; audio.playbackRate = +$('playback-speed').value;
     const resumeAt = position ?? livePosition ?? saved?.position ?? track.position ?? 0;
@@ -753,7 +756,7 @@ function seekSentence(direction) {
   seekPlayback(target);
 }
 function updatePlayer() {
-  const track = currentTrack(); $('mini-player').hidden = !track; $('app').classList.toggle('has-player', !!track);
+  const track = currentTrack(); $('mini-player').hidden = !track; $('app').classList.toggle('has-player', !!track); renderResume();
   if (!track) return;
   const mode = state.library.settings.repeatMode || 'off';
   $('repeat-label').textContent = { off: '順序', track: '單曲', album: '專輯' }[mode];
@@ -777,18 +780,8 @@ function updateTimeline() {
     try { navigator.mediaSession.setPositionState?.({ duration, playbackRate: audio.playbackRate, position: Math.min(duration, time) }); } catch { /* Optional OS integration. */ }
   }
   highlight();
-  const coverage = transcriptCoverage(track.segments, duration);
-  const timingUncertain = track.segments.some(segment => segment.timingUncertain);
-  const audioOnly = !track.segments.length, partial = track.transcriptStatus === 'partial';
-  const needsWordTiming = state.sentences.some(cue => !cue.words && (cue.text.length > 160 || cue.text.trim().split(/\s+/u).length > 24) && !cue.timingUncertain);
-  $('transcript-notice').hidden = !coverage.needsReview && !timingUncertain && !partial && !needsWordTiming;
-  $('transcript-status').textContent = [
-    audioOnly ? '這份音訊尚無可用字幕，原音已保存且可正常播放；可稍後重新產生字幕。' : coverage.needsReview ? `${time > coverage.timedEnd ? '目前播放位置沒有已確認的字幕。' : '字幕尾段可能不完整。'}字幕時間至 ${clock(coverage.timedEnd)}，音訊全長 ${clock(duration)}。可用已保存音訊重新產生字幕。` : '',
-    needsWordTiming ? '這份字幕只有整段時間，已保留完整原文；可用已保存音訊重新產生字幕，啟用逐字跟讀。' : '',
-    partial ? '字幕只完成部分內容或時間對齊，未完成的部分不影響原音播放。' : '',
-    timingUncertain ? '部分原文的模型時間不完整，已保留文字並標示較粗時間範圍，不代表精確句子對齊；可重新產生字幕。' : ''
-  ].filter(Boolean).join(' ');
-  $('regenerate-subtitles').disabled = !!state.job || state.writing;
+  const subtitleState = !track.segments.length ? '尚無字幕' : track.transcriptStatus === 'partial' || transcriptCoverage(track.segments, duration).needsReview ? '字幕未完整' : track.segments.some(segment => segment.timingUncertain) ? '字幕時間為估計範圍' : state.sentences.some(cue => !cue.words) ? '句子字幕' : '逐字字幕';
+  $('toggle-subtitles').setAttribute('aria-label', subtitleState);
 }
 async function saveProgress({ strict = false } = {}) {
   const track = currentTrack(); if (!track || state.clearing || !state.ready) return;
@@ -934,7 +927,7 @@ $('settings-form').onsubmit = safe(async event => {
   event.preventDefault(); $('settings-message').textContent = '';
   document.activeElement?.blur?.();
   try {
-    const settings = { albumLimit: +$('setting-albums').value, trackLimit: +$('setting-tracks').value, maxMinutes: +$('setting-minutes').value, autoUpdate: $('setting-auto-update').checked, subtitleSize: $('setting-subtitles').value, language: $('setting-language').value, model: $('setting-model').value, icon: 'sunrise', autoGuide: $('setting-auto-guide').checked, geminiModel: $('setting-gemini-model').value };
+    const settings = { albumLimit: +$('setting-albums').value, trackLimit: +$('setting-tracks').value, maxMinutes: +$('setting-minutes').value, autoUpdate: $('setting-auto-update').checked, subtitleSize: $('setting-subtitles').value, language: $('setting-language').value, model: $('setting-model').value, icon: 'sunrise', autoGuide: false, geminiModel: $('setting-gemini-model').value };
     await commit(changeSettings(state.library, settings)); state.settingsDirty = false; updateMediaSession(); $('settings-message').textContent = '設定已儲存。'; void updater.refresh();
   } catch (error) { $('settings-message').textContent = error.message; }
 });
@@ -989,7 +982,6 @@ $('translation-play').onclick = safe(async () => {
   catch { if (state.translation === controller) $('translation-status').textContent = '原音無法播放，請再按一次，或重新選擇音訊。'; }
   updateTimeline();
 });
-$('regenerate-subtitles').onclick = safe(() => currentTrack() && regenerateTranscript(state.current));
 audio.addEventListener('play', () => {
   // Normal play actions close translation before calling audio.play(). A late
   // native play event must not undo a newer pause-to-read action.
@@ -1020,7 +1012,7 @@ async function offlineStatus() {
     const check = () => {
       const channel = new MessageChannel();
       const timer = setTimeout(() => { channel.port1.close(); $('offline-status').textContent = '新版可在線使用；請在保存後關閉舊分頁再開啟，以更新離線頁面。'; }, 2000);
-      channel.port1.onmessage = ({ data }) => { clearTimeout(timer); channel.port1.close(); $('offline-status').textContent = data.version === '0.2.18' && data.ready ? '頁面已可離線使用；已收藏的音訊與快取翻譯可離線讀取，新匯入與新翻譯需要連線。' : '新版可在線使用，離線頁面尚待更新。'; };
+      channel.port1.onmessage = ({ data }) => { clearTimeout(timer); channel.port1.close(); $('offline-status').textContent = data.version === '0.2.19' && data.ready ? '頁面已可離線使用；已收藏的音訊與快取翻譯可離線讀取，新匯入與新翻譯需要連線。' : '新版可在線使用，離線頁面尚待更新。'; };
       registration.active?.postMessage({ type: 'CACHE_VERSION' }, [channel.port2]);
     };
     navigator.serviceWorker.addEventListener('controllerchange', check); check();
@@ -1053,7 +1045,8 @@ async function boot() {
     await guides.refresh();
     render();
     const restoreToken = state.playerToken;
-    const savedPlayer = await storage.read('player-v2');
+    const [savedPlayer, lastListened] = await Promise.all([storage.read('player-v2'), storage.read('last-listened-v1')]);
+    if (restoreToken === state.playerToken) { state.resumeTrack = lastListened?.trackId || null; renderResume(); }
     if (restoreToken === state.playerToken && savedPlayer && library.tracks.some(track => track.id === savedPlayer.trackId)) {
       if ([...$('playback-speed').options].some(option => option.value === String(savedPlayer.speed))) $('playback-speed').value = savedPlayer.speed;
       await selectTrack(savedPlayer.trackId, { queue: Array.isArray(savedPlayer.queue) ? savedPlayer.queue : [savedPlayer.trackId], position: savedPlayer.position });

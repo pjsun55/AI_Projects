@@ -1,4 +1,4 @@
-import { normalizeWordAnchors } from './reading.mjs?v=0.2.18';
+import { normalizeWordAnchors } from './reading.mjs?v=0.2.19';
 export const SCHEMA = 'commute-lingo/1';
 const encoder = new TextEncoder();
 const plainText = value => String(value).replace(/<[^>]*>/g, '').trim();

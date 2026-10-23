@@ -1,5 +1,5 @@
-import { GUIDE_INSTRUCTION, GUIDE_SCHEMA, GUIDE_MAX_INPUT, validateGuide } from './guide.mjs?v=0.2.18';
-import { validateApiKey } from './key-vault.mjs?v=0.2.18';
+import { GUIDE_INSTRUCTION, GUIDE_SCHEMA, GUIDE_MAX_INPUT, validateGuide } from './guide.mjs?v=0.2.19';
+import { validateApiKey } from './key-vault.mjs?v=0.2.19';
 
 export class GeminiError extends Error {
   constructor(code, status) {

@@ -41,10 +41,13 @@ export async function runGuideBrowser(page, { version, output, onPhase = () => {
   await page.locator('[data-tab="playlist"]').click(); await page.locator('#playlist-tracks .track-main').first().click();
   await page.waitForFunction(() => document.getElementById('audio').readyState >= 2);
   await page.locator('#audio').evaluate(audio => audio.pause());
-  await page.locator('#toggle-guide').click(); await page.locator('#generate-guide').click();
+  await page.locator('#toggle-guide').click();
+  await expect(page.locator('#guide-status')).toContainText('尚未產生'); assert.equal(requests, 1);
+  await page.locator('#generate-guide').click();
   await expect.poll(async () => (await read('guide:fixture-track'))?.status).toBe('ready');
   await expect(page.locator('.guide-save-word')).toHaveCount(1); await expect(page.locator('#guide-content img')).toHaveCount(0);
   assert.equal(requests, 2);
+  await expect(page.locator('#guide-status')).toContainText('已完成');
   await expect(page.locator('#subtitles-panel')).not.toBeVisible();
   const geometry = await page.evaluate(() => {
     const sheet = document.getElementById('player').getBoundingClientRect(), list = document.getElementById('guide-content');
@@ -60,6 +63,7 @@ export async function runGuideBrowser(page, { version, output, onPhase = () => {
   await expect(page.locator('.guide-save-word')).toBeDisabled(); assert.equal(requests, 2);
   onPhase('guide-local-reload');
   await page.reload(); await expect(page.locator('#mini-player')).toBeVisible();
+  await expect(page.locator('#resume-card')).toBeHidden();
   await page.locator('#mini-open').click(); await page.locator('#toggle-guide').click();
   await expect(page.locator('.guide-save-word')).toHaveCount(1); assert.equal(requests, 2);
   await page.locator('#player-close').click();
@@ -82,12 +86,17 @@ export async function runGuideBrowser(page, { version, output, onPhase = () => {
   assert.ok(Math.abs((await read('progress:fixture-track')).position - 12) < 0.2);
   await page.reload(); await page.waitForFunction(() => !document.getElementById('start-import').disabled);
   await expect(page.locator('#mini-player')).not.toBeVisible();
+  await expect(page.locator('#resume-card')).toBeVisible();
+  await page.locator('#resume-card .round-button').click();
+  await expect(page.locator('#player')).toBeVisible(); await expect(page.locator('#resume-card')).toBeHidden();
+  await page.locator('#audio').evaluate(audio => audio.pause());
+  await page.locator('#player-close').click(); await page.locator('#mini-dismiss').click();
   onPhase('guide-key-removal');
   await page.locator('[data-tab="settings"]').click(); await page.locator('#remove-gemini-key').click();
   await expect.poll(async () => !!await read('gemini-key-v1')).toBe(false);
   await page.locator('[data-tab="playlist"]').click(); await page.locator('#playlist-tracks .track-main').first().click();
   await page.locator('#audio').evaluate(audio => audio.pause()); await page.locator('#toggle-guide').click();
-  await expect(page.locator('.guide-save-word')).toHaveCount(1); await expect(page.locator('#generate-guide')).toBeDisabled(); assert.equal(requests, 2);
+  await expect(page.locator('.guide-save-word')).toHaveCount(1); await expect(page.locator('#generate-guide')).toBeDisabled(); await expect(page.locator('#guide-help')).toContainText('API Key'); assert.equal(requests, 2);
   await page.locator('#player-close').click();
   await page.unroute(pattern, route);
   console.log(JSON.stringify({ guide: 'PASS', encryptedKeyReload: 'PASS', noRepeatedCalls: requests, geometry, topBar }));

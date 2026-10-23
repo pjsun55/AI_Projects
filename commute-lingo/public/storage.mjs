@@ -1,4 +1,4 @@
-import { transcriptText } from './guide.mjs?v=0.2.18';
+import { transcriptText } from './guide.mjs?v=0.2.19';
 const DB_NAME = 'commute-lingo-v1';
 let connection;
 function database() {
@@ -58,6 +58,10 @@ export async function commitLibrary(library, { expectedRevision, audio, removeId
       try {
         if ((request.result?.revision ?? 0) !== expectedRevision) throw new Error('另一個分頁已更新資料，請重新整理後再試。');
         for (const id of removeIds) { store.delete(`audio:${id}`); store.delete(`progress:${id}`); store.delete(`guide:${id}`); }
+        if (removeIds.length) {
+          const bookmark = store.get('last-listened-v1');
+          bookmark.onsuccess = () => { if (removeIds.includes(bookmark.result?.trackId)) store.delete('last-listened-v1'); };
+        }
         store.put(library, 'library-v2');
         if (audio) store.put(audio.blob, `audio:${audio.id}`);
         if (removeSession) store.delete('session');
@@ -78,6 +82,7 @@ export async function savePlayer(snapshot, { activate = false, dismiss = false }
       if (++ready !== 2 || !library.result?.tracks.some(track => track.id === snapshot.trackId)) return;
       if (!activate && player.result?.sessionId !== snapshot.sessionId) return;
       store.put({ position: snapshot.position }, `progress:${snapshot.trackId}`);
+      store.put({ trackId: snapshot.trackId }, 'last-listened-v1');
       store.put(dismiss ? null : snapshot, 'player-v2'); saved = true;
     };
     library.onsuccess = player.onsuccess = check;
