@@ -23,7 +23,7 @@ const translationAudio = createAudioExcerpt({ audio, onChange: playing => {
   $('translation-play').textContent = playing ? '停止原音' : '播放這段原音';
   $('translation-play').setAttribute('aria-pressed', String(playing));
 } });
-let messageTimer, readingTimer;
+let messageTimer, readingTimer, retriedAudioSource = '';
 let progressChain = Promise.resolve(), playerSession = null;
 function refreshReadingClock() {
   clearTimeout(readingTimer); readingTimer = undefined;
@@ -712,7 +712,7 @@ async function selectTrack(id, { queue = [id], autoplay = false, expand = false,
     const saved = position === undefined && !reuse ? await storage.read(`progress:${id}`) : null; if (token !== state.playerToken) return;
     state.current = id; state.resumeTrack = id; state.queue = queue.filter(item => state.library.tracks.some(track => track.id === item));
     const sessionId = crypto.randomUUID(); playerSession = sessionId;
-    state.sentences = readingCues(sentencesFor(track), track.language); if (!reuse) audio.src = url; audio.playbackRate = +$('playback-speed').value;
+    state.sentences = readingCues(sentencesFor(track), track.language); if (!reuse) { retriedAudioSource = ''; audio.src = url; } audio.playbackRate = +$('playback-speed').value;
     const resumeAt = position ?? livePosition ?? saved?.position ?? track.position ?? 0;
     const start = resumeAt >= track.duration - 1 ? 0 : Math.max(0, Math.min(track.duration - 0.1, resumeAt));
     const seek = () => { if (token === state.playerToken) { audio.currentTime = start; updateTimeline(); } };
@@ -992,7 +992,21 @@ audio.addEventListener('play', () => {
 audio.addEventListener('pause', () => { updatePlayer(); saveProgress(); if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'; });
 audio.addEventListener('timeupdate', () => { updateTimeline(); if (performance.now() - state.lastProgressSave > 8000) { state.lastProgressSave = performance.now(); saveProgress(); } });
 audio.addEventListener('seeked', () => { updateTimeline(); if (!state.translation) subtitleFollow.resume(); });
-audio.addEventListener('error', () => { if (state.current) { $('player-feedback').textContent = '音訊播放失敗，請重新選擇音訊或匯入來源。'; notify('音訊播放失敗，請重新選擇音訊或匯入來源。', true); } });
+audio.addEventListener('error', () => {
+  if (!state.current) return;
+  // WebKit can fail the first load of a valid stored Blob. Retry that same
+  // local resource once, only while play is still requested and before metadata.
+  // Both actions are synchronous: a subsequent user pause/dismiss always wins.
+  if (audio.error?.code === 4 && audio.readyState === 0 && !audio.paused && audio.src.startsWith('blob:') && retriedAudioSource !== audio.src && !state.translation && !state.clearing && !state.updating) {
+    retriedAudioSource = audio.src;
+    const token = state.playerToken, rate = audio.playbackRate;
+    audio.load(); audio.playbackRate = rate;
+    audio.play().catch(() => { if (token === state.playerToken && currentTrack() && audio.error) $('player-feedback').textContent = '音訊無法播放，請重新選擇音訊。'; });
+    return;
+  }
+  $('player-feedback').textContent = '音訊播放失敗，請重新選擇音訊或匯入來源。';
+  notify('音訊播放失敗，請重新選擇音訊或匯入來源。', true);
+});
 audio.addEventListener('ended', safe(async () => {
   if (translationAudio.active) return;
   const next = nextPlayback(state.library, state.current, state.queue);
