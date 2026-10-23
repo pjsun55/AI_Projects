@@ -239,7 +239,7 @@ try {
         await expect(page.locator('#toggle-subtitles')).toHaveAttribute('aria-label', '尚無字幕');
         await expect(page.locator('#transcript-notice')).toHaveCount(0);
         await page.locator('#toggle-subtitles').click();
-        await expect(page.locator('#subtitle-list')).toContainText('目前尚無字幕');
+        await expect(page.locator('#subtitle-list')).toHaveText('尚無字幕');
         await page.locator('#player-close').click();
         await page.locator('#playlist-tracks .track-main').filter({ hasText: 'Partial public fixture' }).click();
         await page.locator('#toggle-subtitles').click();
