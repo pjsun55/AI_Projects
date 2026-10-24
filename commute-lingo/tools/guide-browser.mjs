@@ -65,7 +65,7 @@ export async function runGuideBrowser(page, { version, output, onPhase = () => {
   await expect.poll(() => requests).toBe(1); await expect(page.locator('#remove-gemini-key')).toBeEnabled();
   onPhase('guide-generate');
   await page.locator('[data-tab="playlist"]').click(); await page.locator('#playlist-tracks .track-main').first().click();
-  await page.waitForFunction(() => document.getElementById('audio').readyState >= 2);
+  await page.waitForFunction(() => { const audio = document.getElementById('audio'); return audio.readyState >= 2 && Math.abs(audio.duration - 120) < 0.1; });
   await page.locator('#audio').evaluate(audio => audio.pause());
   await page.locator('#toggle-guide').click();
   await expect(page.locator('#guide-status')).toContainText('尚未產生'); assert.equal(requests, 1);
@@ -111,8 +111,17 @@ export async function runGuideBrowser(page, { version, output, onPhase = () => {
   await page.screenshot({ path: new URL('top-player.png', output).pathname });
   await page.locator('#mini-open').click(); await page.locator('#playback-repeat').click();
   await expect.poll(async () => (await read('library-v2')).settings.repeatMode).toBe('track');
-  await page.locator('#audio').evaluate(audio => { audio.currentTime = 120; audio.dispatchEvent(new Event('ended')); });
-  await page.waitForFunction(() => document.getElementById('audio').currentTime < 2 && !document.getElementById('audio').paused);
+  // Let the real media pipeline reach EOS once. Seeking to the exact end and
+  // dispatching another ended event can race WebKit's own queued EOS/seek.
+  await page.locator('#audio').evaluate(audio => {
+    window.__guideLoopEnded = 0;
+    audio.addEventListener('ended', () => { window.__guideLoopEnded++; }, { once: true });
+    audio.currentTime = audio.duration - 0.5;
+  });
+  await page.waitForFunction(() => {
+    const audio = document.getElementById('audio');
+    return window.__guideLoopEnded === 1 && audio.readyState >= 2 && !audio.seeking && audio.currentTime < 2 && !audio.paused && Math.abs(audio.duration - 120) < 0.1;
+  });
   await page.locator('#playback-repeat').click(); await expect.poll(async () => (await read('library-v2')).settings.repeatMode).toBe('album');
   await page.locator('#playback-repeat').click(); await expect.poll(async () => (await read('library-v2')).settings.repeatMode).toBe('off');
   await page.locator('#audio').evaluate(audio => { audio.pause(); audio.currentTime = 12; });
@@ -126,7 +135,7 @@ export async function runGuideBrowser(page, { version, output, onPhase = () => {
   await expect(page.locator('#resume-card')).toBeVisible();
   await page.locator('#resume-card .round-button').click();
   await expect(page.locator('#player')).toBeVisible(); await expect(page.locator('#resume-card')).toBeHidden();
-  await page.waitForFunction(() => { const audio = document.getElementById('audio'); return audio.readyState >= 1 && !audio.seeking && Math.abs(audio.currentTime - 12) < 1; });
+  await page.waitForFunction(() => { const audio = document.getElementById('audio'); return audio.readyState >= 1 && !audio.seeking && Math.abs(audio.duration - 120) < 0.1 && Math.abs(audio.currentTime - 12) < 1; });
   await page.locator('#audio').evaluate(audio => audio.pause());
   assert.ok(Math.abs(await page.locator('#audio').evaluate(audio => audio.currentTime) - 12) < 1, 'Resume must retain the saved playback position');
   await page.locator('#player-close').click(); await page.locator('#mini-dismiss').click();
