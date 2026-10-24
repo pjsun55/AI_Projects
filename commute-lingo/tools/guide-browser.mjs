@@ -111,6 +111,10 @@ export async function runGuideBrowser(page, { version, output, onPhase = () => {
   await page.screenshot({ path: new URL('top-player.png', output).pathname });
   await page.locator('#mini-open').click(); await page.locator('#playback-repeat').click();
   await expect.poll(async () => (await read('library-v2')).settings.repeatMode).toBe('track');
+  // Reload restores a paused player. Resume through the user control before
+  // waiting for a real ended event; a seek alone cannot finish paused media.
+  if (await page.locator('#audio').evaluate(audio => audio.paused)) await page.locator('#player-play').click();
+  await page.waitForFunction(() => { const audio = document.getElementById('audio'); return !audio.paused && audio.readyState >= 2 && Math.abs(audio.duration - 120) < 0.1; });
   // Let the real media pipeline reach EOS once. Seeking to the exact end and
   // dispatching another ended event can race WebKit's own queued EOS/seek.
   await page.locator('#audio').evaluate(audio => {
