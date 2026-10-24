@@ -1,9 +1,9 @@
-import { GUIDE_INSTRUCTION, GUIDE_OUTPUT_RULES, normalizeGuidePrompt, GUIDE_SCHEMA, GUIDE_MAX_INPUT, GUIDE_MODEL, validateGuide } from './guide.mjs?v=0.2.22';
-import { validateApiKey } from './key-vault.mjs?v=0.2.22';
+import { GUIDE_INSTRUCTION, GUIDE_OUTPUT_RULES, normalizeGuidePrompt, GUIDE_SCHEMA, GUIDE_MAX_INPUT, GUIDE_MODEL, validateGuide } from './guide.mjs?v=0.2.23';
+import { validateApiKey } from './key-vault.mjs?v=0.2.23';
 
 export class GeminiError extends Error {
   constructor(code, status) {
-    const messages = { TIMEOUT: '導讀等待逾時，可稍後手動重試。', CANCELLED: '導讀已停止。', NETWORK: '無法連線 Gemini，請確認網路後重試。', RESPONSE: 'Gemini 回應格式無效，未儲存。', INCOMPLETE: 'Gemini 連線已結束，但導讀尚未完成；請手動重試。', OUTPUT_LIMIT: 'Gemini 已達輸出上限，導讀被截斷；未儲存。', QUOTE: '導讀引句與字幕原文不符，未儲存；請手動重試。', FORMAT: '導讀欄位格式或長度不符，未儲存；請手動重試。', TOO_LARGE: 'Gemini 回應超出大小限制，未儲存。', BLOCKED: 'Gemini 未提供可用導讀。' };
+    const messages = { TIMEOUT: '導讀等待逾時，可稍後手動重試。', CANCELLED: '導讀已停止。', NETWORK: '無法連線 Gemini，請確認網路後重試。', RESPONSE: 'Gemini 回應格式無效，未儲存。', INCOMPLETE: 'Gemini 連線已結束，但導讀尚未完成；請手動重試。', OUTPUT_LIMIT: 'Gemini 已達輸出上限，導讀被截斷；未儲存。', FORMAT: '導讀欄位格式或長度不符，未儲存；請手動重試。', TOO_LARGE: 'Gemini 回應超出大小限制，未儲存。', BLOCKED: 'Gemini 未提供可用導讀。' };
     super(status ? ({ 400: 'Gemini 請求或 Key 無效。', 401: 'Gemini Key 驗證未通過。', 403: 'Gemini Key 權限不足，請檢查設定。', 404: 'Gemini 模型不可用。', 429: 'Gemini 額度或頻率受限，請稍後手動重試。' }[status] || 'Gemini 服務暫時無法完成請求。') : messages[code] || '無法完成 Gemini 導讀。');
     this.code = code; if (status) this.status = status;
   }
@@ -73,7 +73,7 @@ async function request({ key, model, text, signal, progress = () => {}, prompt =
     if (verify) return { usage };
     let parsed; try { parsed = JSON.parse(result); } catch { throw new GeminiError('RESPONSE'); }
     let content;
-    try { content = validateGuide(parsed, text); } catch (error) { throw new GeminiError(error.message.includes('引句') ? 'QUOTE' : 'FORMAT'); }
+    try { content = validateGuide(parsed); } catch { throw new GeminiError('FORMAT'); }
     return { content, usage };
   } catch (error) {
     if (controller.signal.aborted) throw new GeminiError(signal?.aborted ? 'CANCELLED' : 'TIMEOUT');

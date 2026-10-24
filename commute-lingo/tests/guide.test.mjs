@@ -27,11 +27,10 @@ test('guide eligibility uses available text rather than timestamp completeness',
   assert.notEqual(fingerprint, await guideFingerprint(source + ' More.'));
   assert.notEqual(fingerprint, await guideFingerprint(source, 'gemini-3.8-flash'));
 });
-test('validation whitelists teaching fields and rejects invented quotes, duplicates and excessive content', () => {
+test('validation whitelists teaching fields and rejects malformed or excessive content', () => {
   const value = fixture(); value.untrusted = '<script>'; value.vocabulary[0].unknown = key;
   assert.deepEqual(validateGuide(value, source), fixture());
-  const fragment = fixture(); fragment.vocabulary[0].term = 'all'; assert.throws(() => validateGuide(fragment, source));
-  for (const change of [v => { v.intro = '\0'; }, v => { v.route = Array(7).fill('多餘'); }, v => { v.vocabulary = Array(7).fill(v.vocabulary[0]); }, v => { v.vocabulary[0].quote = 'Invented quote.'; }, v => { v.vocabulary[0].term = 'unmentioned'; }, v => { v.vocabulary.push({ ...v.vocabulary[0] }); }, v => { v.sentence.quote = 'Invented sentence.'; }, v => { v.sentence.translation = 'x'.repeat(1201); }]) {
+  for (const change of [v => { v.intro = '\0'; }, v => { v.route = Array(7).fill('多餘'); }, v => { v.vocabulary = Array(7).fill(v.vocabulary[0]); }, v => { v.sentence.translation = 'x'.repeat(1201); }, v => { v.vocabulary[0].quote = ''; }, v => { v.vocabulary[0].term = 17; }]) {
     const invalid = fixture(); change(invalid); assert.throws(() => validateGuide(invalid, source));
   }
   assert.deepEqual(validateGuide({ intro: '短文導讀。', route: [], vocabulary: [], sentence: null }, source), { intro: '短文導讀。', route: [], vocabulary: [], sentence: null });
@@ -119,9 +118,9 @@ test('a valid guide longer than 2400 characters accepts a terminal SSE event wit
     assert.deepEqual(result.content, value);
   }
 });
-test('output truncation, missing completion, invalid JSON and source validation have distinct safe errors', async () => {
-  const changed = fixture(); changed.sentence.quote = 'Invented sentence.';
-  for (const [reply, code] of [[frame('{}', 'MAX_TOKENS'), 'OUTPUT_LIMIT'], [frame('{}', null), 'INCOMPLETE'], [frame('not json'), 'RESPONSE'], [frame(JSON.stringify(changed)), 'QUOTE']]) {
+test('output truncation, missing completion, invalid JSON and invalid fields have distinct safe errors', async () => {
+  const changed = fixture(); changed.sentence.translation = 'x'.repeat(1201);
+  for (const [reply, code] of [[frame('{}', 'MAX_TOKENS'), 'OUTPUT_LIMIT'], [frame('{}', null), 'INCOMPLETE'], [frame('not json'), 'RESPONSE'], [frame(JSON.stringify(changed)), 'FORMAT']]) {
     await assert.rejects(generateGuide(options(async () => sse([reply]))), error => error.code === code && !error.message.includes(key));
   }
 });
@@ -141,4 +140,26 @@ test('expanded roadmap and custom prompt preserve limits and request safeguards'
   }), prompt});
   await assert.rejects(generateGuide({...options(() => {throw Error('must not fetch');}), prompt: key}), /API Key/);
   assert.ok(GUIDE_INSTRUCTION.includes('150–250'));
+});
+
+test('AI corrections and teaching examples save without matching transcript wording or terms', async () => {
+  const examples = [
+    v => { v.vocabulary[0].quote = 'The train crosses a quiet valley!'; },
+    v => { v.vocabulary[0].quote = 'the train crosses a quiet valley.'; },
+    v => { v.vocabulary[0].quote = 'The train  crosses a quiet valley.'; },
+    v => { v.vocabulary[0].term = 'valleys'; },
+    v => { v.vocabulary[0].term = 'CO2'; },
+    v => { v.vocabulary.push({ ...v.vocabulary[0] }); },
+    v => { v.sentence.quote = 'We noticed a familiar expression.'; }
+  ];
+  for (const change of examples) {
+    const value = fixture(); change(value); let calls = 0;
+    const result = await generateGuide(options(async () => { calls++; return sse([frame(JSON.stringify(value))]); }));
+    assert.deepEqual(result.content, value); assert.equal(calls, 1);
+  }
+  const corrected = fixture(); corrected.sentence.quote = 'We noticed a familiar expression.';
+  assert.equal(guideAudioRange([{start:0,end:5,text:source}], corrected.sentence.quote), null);
+  assert.ok(GUIDE_OUTPUT_RULES.includes('修正字幕'));
+  const invalid = fixture(); invalid.intro = '\0';
+  await assert.rejects(generateGuide(options(async () => sse([frame(JSON.stringify(invalid))]))), error => error.code === 'FORMAT');
 });

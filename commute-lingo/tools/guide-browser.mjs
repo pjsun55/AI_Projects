@@ -8,7 +8,8 @@ export async function runGuideBrowser(page, { version, output, onPhase = () => {
   const customPrompt = '依主題完整說明前後關係，保留猜字線索。';
   const read = name => page.evaluate(async ({ version, name }) => (await import(`./storage.mjs?v=${version}`)).read(name), { version, name });
   const source = (await read('library-v2')).tracks.find(track => track.id === 'fixture-track').segments.map(cue => cue.text).join(' ');
-  const quote = 'Sentence 1 is public test content for the commute reading layout.';
+  const quote = 'Sentence one introduces the commute lesson in clear English.';
+  assert.ok(!source.includes(quote), 'Fixture must exercise AI-corrected wording absent from the transcript');
   const content = { intro: '<img src=x onerror=alert(1)> 這是通勤聽力導讀的測試文字。', route: ['旅途觀察\n<img src=x onerror=alert(1)> 留意每一句表達的重點，從完整語境理解主題及轉折。'], vocabulary: [{ term: 'commute', pos: 'n.', meaning: '通勤', quote, clue: '從閱讀旅程的語境猜字義。' }], sentence: { quote, translation: '這是通勤閱讀版面測試的公開內容。', explanation: 'for 說明用途。' } };
   let requests = 0;
   const route = async intercepted => {
@@ -47,6 +48,10 @@ export async function runGuideBrowser(page, { version, output, onPhase = () => {
   await page.locator('[data-tab="settings"]').click();
   await expect(page.locator('#setting-guide-prompt')).toHaveValue(customPrompt);
   assert.equal(requests, 0);
+  const typography = await page.evaluate(() => ['setting-guide-prompt', 'gemini-key', 'setting-minutes'].map(id => {
+    const style = getComputedStyle(document.getElementById(id)); return { size: style.fontSize, family: style.fontFamily };
+  }));
+  assert.ok(typography.every(style => style.size === typography[0].size && style.family === typography[0].family), 'Prompt uses the same type size and family as other settings inputs');
   await page.locator('#gemini-key').fill(key); await page.locator('#save-gemini-key').click();
   await expect(page.locator('#gemini-key')).toHaveValue('');
   await expect.poll(async () => !!await read('gemini-key-v1')).toBe(true);
@@ -74,6 +79,8 @@ export async function runGuideBrowser(page, { version, output, onPhase = () => {
   await expect(page.locator('.guide-route strong')).toHaveText('旅途觀察');
   await expect(page.locator('.guide-route p')).toContainText('<img src=x onerror=alert(1)>');
   await expect(page.locator('.guide-intro')).toHaveCount(0);
+  assert.equal((await read('guide:fixture-track')).content.sentence.quote, quote);
+  await expect(page.locator('.guide-sentence button')).toBeDisabled();
   assert.equal(requests, 2);
   await expect(page.locator('#guide-status')).toContainText('已完成');
   await expect(page.locator('#subtitles-panel')).not.toBeVisible();

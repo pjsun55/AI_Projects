@@ -73,6 +73,7 @@ try {
   const location = { href: `https://example.test/commute-lingo/?v=${version}`, hash: '' };
   const screen = { width: 393, height: 852, orientation: { type: 'portrait-primary', addEventListener() {} } };
   const fixtureSentence = 'While the train moves through the city and the morning sun fills the windows, I listen to a familiar story and notice the expressions I missed yesterday, then I repeat a useful sentence quietly and save the lesson for another journey.';
+  const guideExample = fixtureSentence.replace('a familiar story', 'the familiar story');
   const translatedTexts = [], dictionaryWords = [], heldWordLookups = []; let failWordLookups = false, holdWordLookups = false;
   const geminiCalls = [], heldGuides = []; let holdGuides = false, failGuides = false;
   let fixtureName = 'A short test episode', fixtureMillis = 4000, fixtureSeconds = 4, partialTranscript = false, missingModelStart = false, wordTranscript = false, mixedTranscript = false, holdWorker = false, failWorker = false, mediaDownloads = 0, catalogLookups = 0, translated = 0;
@@ -81,7 +82,7 @@ try {
     if (url.hostname === 'generativelanguage.googleapis.com') {
       const body = JSON.parse(options.body), original = body.contents[0].parts[0].text;
       geminiCalls.push({ url: url.href, body, header: options.headers['x-goog-api-key'] });
-      const content = { intro: '這一集從通勤旅程切入，介紹如何留意熟悉故事中的表達方式。', route: ['旅途中的觀察\n這個主題從熟悉的故事切入，說明沿途的觀察如何幫助理解英文表達，並留意前後文的關係。'], vocabulary: [{ term: 'familiar', pos: 'adj.', meaning: '熟悉的', quote: fixtureSentence, clue: '昨天聽過的故事提供了語境。' }], sentence: { quote: 'Listen and learn along the way.', translation: '一路聆聽與學習。', explanation: '兩個動詞以 and 連接。' } };
+      const content = { intro: '這一集從通勤旅程切入，介紹如何留意熟悉故事中的表達方式。', route: ['旅途中的觀察\n這個主題從熟悉的故事切入，說明沿途的觀察如何幫助理解英文表達，並留意前後文的關係。'], vocabulary: [{ term: 'familiar', pos: 'adj.', meaning: '熟悉的', quote: guideExample, clue: '昨天聽過的故事提供了語境。' }], sentence: { quote: 'Listen to the lesson and learn as you travel.', translation: '一路聆聽與學習。', explanation: '兩個動詞以 and 連接。' } };
       const reply = () => failGuides ? new Response('provider detail omitted', { status: 429 }) : new Response('data: ' + JSON.stringify({ candidates: [{ content: { parts: [{ text: original === 'Please reply with OK.' ? 'OK' : JSON.stringify(content) }] }, finishReason: 'STOP' }], usageMetadata: { totalTokenCount: 100 } }) + '\n\n', { headers: { 'Content-Type': 'text/event-stream' } });
       if (holdGuides) return new Promise(resolve => heldGuides.push(() => resolve(reply())));
       return reply();
@@ -697,12 +698,15 @@ try {
   check(geminiCalls.length === 2 && geminiCalls[1].body.contents[0].parts[0].text === guideModule.transcriptText(guidedTrack) && $('guide-status').textContent.includes('已完成') && $('guide-state-label').textContent.includes('✓'), 'exactly one manual request saves the full transcript guide and visibly reports completion');
   await until(() => $('guide-content').querySelector('.guide-save-word'), 'saved guide displayed');
   check(!$('guide-panel').hidden && $('subtitles-panel').hidden && $('guide-content').textContent.includes('熟悉的') && geminiCalls.length === 2, 'opening a saved guide renders local content without a second request');
+  const correctedGuide = await storageModule.read(`guide:${guidedTrack.id}`);
+  check(correctedGuide.content.vocabulary[0].quote === guideExample && !guideModule.transcriptText(guidedTrack).includes(guideExample), 'a corrected AI teaching example is saved even when absent verbatim from the transcript');
+  check($('guide-content').querySelector('.guide-sentence button').disabled && $('guide-content').textContent.includes('Listen to the lesson and learn as you travel.'), 'an unmatched corrected sentence remains readable while original-audio playback is disabled');
   const translationsBeforeGuideWord = translated, dictionaryBeforeGuideWord = dictionaryWords.length;
   check($('guide-content').querySelector('.guide-route strong')?.textContent === '旅途中的觀察' && !$('guide-content').querySelector('.guide-intro'), 'expanded roadmap renders as the main guide with no duplicate introduction');
   $('guide-content').querySelector('.guide-save-word').dispatchEvent(event('click'));
   await until(async () => (await words())?.words.some(word => word.word === 'familiar'), 'guide word collection');
   const collected = (await words()).words.find(word => word.word === 'familiar');
-  check(collected.translation === '熟悉的' && collected.translationSource === 'gemini' && collected.note.includes(fixtureSentence) && translated === translationsBeforeGuideWord && dictionaryWords.length === dictionaryBeforeGuideWord && geminiCalls.length === 2, 'guide collection retains meaning, attribution and original quote without extra API calls');
+  check(collected.translation === '熟悉的' && collected.translationSource === 'gemini' && collected.note.includes(guideExample) && translated === translationsBeforeGuideWord && dictionaryWords.length === dictionaryBeforeGuideWord && geminiCalls.length === 2, 'guide collection retains meaning, attribution and the AI teaching example without extra API calls');
   failGuides = true; click('generate-guide');
   await until(async () => (await storageModule.read(`guide:${guidedTrack.id}`))?.status === 'failed' && !$('generate-guide').disabled, 'manual regeneration failure');
   await delay(40);

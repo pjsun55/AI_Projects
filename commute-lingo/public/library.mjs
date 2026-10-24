@@ -1,5 +1,5 @@
-import { GUIDE_INSTRUCTION, normalizeGuidePrompt } from './guide.mjs?v=0.2.22';
-import { normalizeSegments, groupSentences } from './core.mjs?v=0.2.22';
+import { GUIDE_INSTRUCTION, normalizeGuidePrompt } from './guide.mjs?v=0.2.23';
+import { normalizeSegments, groupSentences } from './core.mjs?v=0.2.23';
 
 export const LIBRARY_KEY = 'library-v2';
 export const MAX_AUDIO_MINUTES = 60;

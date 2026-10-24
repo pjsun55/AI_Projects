@@ -1,8 +1,8 @@
-import * as storage from './storage.mjs?v=0.2.22';
-import { GEMINI_KEY, encryptApiKey, decryptApiKey } from './key-vault.mjs?v=0.2.22';
-import { generateGuide, verifyGeminiKey } from './gemini.mjs?v=0.2.22';
-import { transcriptText, guideAvailable, guideFingerprint, validateGuide } from './guide.mjs?v=0.2.22';
-import { normalizeWord, wordIdentity } from './vocabulary.mjs?v=0.2.22';
+import * as storage from './storage.mjs?v=0.2.23';
+import { GEMINI_KEY, encryptApiKey, decryptApiKey } from './key-vault.mjs?v=0.2.23';
+import { generateGuide, verifyGeminiKey } from './gemini.mjs?v=0.2.23';
+import { transcriptText, guideAvailable, guideFingerprint, guideAudioRange, validateGuide } from './guide.mjs?v=0.2.23';
+import { normalizeWord, wordIdentity } from './vocabulary.mjs?v=0.2.23';
 
 export function createGuideController({ getLibrary, getCurrent, getWords, saveWord, notify, openSettings, playQuote, broadcast, available = () => true }) {
   const $ = id => document.getElementById(id);
@@ -27,7 +27,7 @@ export function createGuideController({ getLibrary, getCurrent, getWords, saveWo
     const running = !!job || record?.status === 'running' && Date.now() - record.request?.startedAt < 190000;
     const queued = queue.some(item => item.id === track.id);
     let content;
-    try { if (record?.content) content = validateGuide(record.content, transcriptText(track)); } catch { /* Untrusted stored data. */ }
+    try { if (record?.content) content = validateGuide(record.content); } catch { /* Untrusted stored data. */ }
     const reason = !guideAvailable(track) ? '這一集尚無可用字幕。' : !hasKey ? '請先在設定保存 Gemini API Key。' : keyBusy ? 'Key 處理中。' : !available() ? '資料處理中，請稍後。' : '';
     const failed = notices.get(track.id) || (record?.status === 'failed' ? record.error : record?.status === 'running' && !running ? '上次導讀未完成，請手動重試。' : '');
     const phase = running ? 'running' : queued ? 'queued' : failed ? 'failed' : content ? 'ready' : 'missing';
@@ -55,7 +55,7 @@ export function createGuideController({ getLibrary, getCurrent, getWords, saveWo
     if (!track) return;
     const source = transcriptText(track);
     let content;
-    try { if (record?.content) content = validateGuide(record.content, source); } catch { /* Persisted/provider data is untrusted. */ }
+    try { if (record?.content) content = validateGuide(record.content); } catch { /* Persisted/provider data is untrusted. */ }
     const running = active?.id === track.id || record?.status === 'running' && Date.now() - record.request?.startedAt < 190000;
     updateStatus();
     if (!content) {
@@ -78,7 +78,7 @@ export function createGuideController({ getLibrary, getCurrent, getWords, saveWo
       let word; try { word = normalizeWord(item.term); } catch { /* Phrase: individual words remain selectable. */ }
       if (word) {
         const exists = getWords().words.some(entry => wordIdentity(entry.word, entry.language) === wordIdentity(word, track.language));
-        const save = action(exists ? '已收藏' : '＋收藏', async () => { await saveWord({ word, language: track.language, translation: item.meaning, translationSource: 'gemini', sourceTitle: getLibrary().tracks.find(entry => entry.id === track.id)?.title || track.title, note: `Gemini 導讀原句：${item.quote}` }); render(); }, 'guide-save-word');
+        const save = action(exists ? '已收藏' : '＋收藏', async () => { await saveWord({ word, language: track.language, translation: item.meaning, translationSource: 'gemini', sourceTitle: getLibrary().tracks.find(entry => entry.id === track.id)?.title || track.title, note: `Gemini 導讀例句：${item.quote}` }); render(); }, 'guide-save-word');
         save.disabled = exists || !available(); save.setAttribute('aria-label', `${exists ? '已收藏' : '收藏單字'} ${word}`); heading.append(save);
       }
       const quote = element('blockquote', 'guide-source', item.quote); quote.dataset.quote = item.quote;
@@ -88,7 +88,10 @@ export function createGuideController({ getLibrary, getCurrent, getWords, saveWo
     }
     if (content.sentence) {
       const section = card('03 · 難句跟讀', 'guide-sentence'), quote = element('blockquote', 'guide-source', content.sentence.quote); quote.dataset.quote = content.sentence.quote;
-      section.append(quote, element('p', '', content.sentence.translation), element('p', 'guide-clue', content.sentence.explanation), action('播放這段原音', () => playQuote(content.sentence.quote)));
+      const play = action('播放這段原音', () => playQuote(content.sentence.quote));
+      play.disabled = !guideAudioRange(track.segments, content.sentence.quote);
+      if (play.disabled) play.title = '此句未對應到可播放的字幕時間範圍';
+      section.append(quote, element('p', '', content.sentence.translation), element('p', 'guide-clue', content.sentence.explanation), play);
     }
   }
   async function pump() {
@@ -189,7 +192,7 @@ export function createGuideController({ getLibrary, getCurrent, getWords, saveWo
     const track = getCurrent(), selected = selection;
     if (!track || !selected) return;
     const item = currentRecord()?.content?.vocabulary?.find(item => item.term.toLowerCase() === selected.word.toLowerCase());
-    void saveWord({ word: selected.word, language: track.language, sourceTitle: track.title, translation: item?.meaning || '', translationSource: item ? 'gemini' : '', note: `Gemini 導讀原句：${selected.quote}` }).then(render).catch(error => notify(error.message, true));
+    void saveWord({ word: selected.word, language: track.language, sourceTitle: track.title, translation: item?.meaning || '', translationSource: item ? 'gemini' : '', note: `Gemini 導讀例句：${selected.quote}` }).then(render).catch(error => notify(error.message, true));
   };
   return { refresh, render, start, abort, updateControls: keyControls, get busy() { return !!active || queue.length > 0 || keyBusy; }, get keyBusy() { return keyBusy; }, clear() { keyEpoch++; epoch++; abort(); keyController?.abort(); clearTimeout(statusTimer); notices.clear(); records.clear(); hasKey = false; $('gemini-key').value = ''; keyControls(); render(); } };
 }

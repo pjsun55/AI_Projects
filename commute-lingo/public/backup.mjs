@@ -1,5 +1,5 @@
-import { validateSettings, changeSettings } from './library.mjs?v=0.2.22';
-import { validateVocabulary, mergeVocabulary } from './vocabulary.mjs?v=0.2.22';
+import { validateSettings, changeSettings } from './library.mjs?v=0.2.23';
+import { validateVocabulary, mergeVocabulary } from './vocabulary.mjs?v=0.2.23';
 
 export const PERSONAL_BACKUP_SCHEMA = 'commute-lingo-personal-backup/1';
 export const MAX_BACKUP_BYTES = 32 * 1024 * 1024;
