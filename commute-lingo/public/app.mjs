@@ -995,18 +995,35 @@ audio.addEventListener('timeupdate', () => { updateTimeline(); if (performance.n
 audio.addEventListener('seeked', () => { updateTimeline(); if (!state.translation) subtitleFollow.resume(); });
 audio.addEventListener('error', () => {
   if (!state.current) return;
-  // WebKit can fail the first load of a valid stored Blob. Retry that same
-  // local resource once, only while play is still requested and before metadata.
-  // Both actions are synchronous: a subsequent user pause/dismiss always wins.
+  const failed = () => {
+    $('player-feedback').textContent = '音訊播放失敗，請重新選擇音訊或匯入來源。';
+    notify('音訊播放失敗，請重新選擇音訊或匯入來源。', true);
+  };
+  // Re-loading a failing stored-Blob URL synchronously can fail again in WebKit.
+  // Rehydrate its unchanged bytes once; never fetch a remote source or retry
+  // after a newer pause, stop, source selection, translation, clear or update.
   if (audio.error?.code === 4 && audio.readyState === 0 && !audio.paused && audio.src.startsWith('blob:') && retriedAudioSource !== audio.src && !state.translation && !state.clearing && !state.updating) {
-    retriedAudioSource = audio.src;
-    const token = state.playerToken, rate = audio.playbackRate;
-    audio.load(); audio.playbackRate = rate;
-    audio.play().catch(() => { if (token === state.playerToken && currentTrack() && audio.error) $('player-feedback').textContent = '音訊無法播放，請重新選擇音訊。'; });
+    const source = audio.src, id = state.current, token = state.playerToken;
+    retriedAudioSource = source;
+    const valid = () => token === state.playerToken && state.current === id && audio.src === source && state.urls.get(id) === source && !audio.paused && !state.translation && !state.clearing && !state.updating;
+    void (async () => {
+      const blob = await storage.read(`audio:${id}`);
+      if (!valid()) return;
+      if (!(blob instanceof Blob) || blob.size <= 0 || blob.size > 250 * 1024 * 1024) throw Error('Invalid local audio');
+      const bytes = await blob.arrayBuffer();
+      if (!valid()) return;
+      if (bytes.byteLength !== blob.size) throw Error('Incomplete local audio');
+      const rate = audio.playbackRate, fresh = URL.createObjectURL(new Blob([bytes], { type: blob.type }));
+      // Mark the replacement too, so a genuine decoder/format error stops here.
+      retriedAudioSource = fresh; state.urls.set(id, fresh); audio.src = fresh;
+      URL.revokeObjectURL(source); audio.load(); audio.playbackRate = rate;
+      $('player-feedback').textContent = '';
+      try { await audio.play(); }
+      catch { if (token === state.playerToken && audio.src === fresh && !audio.paused && audio.error) failed(); }
+    })().catch(() => { if (valid()) failed(); });
     return;
   }
-  $('player-feedback').textContent = '音訊播放失敗，請重新選擇音訊或匯入來源。';
-  notify('音訊播放失敗，請重新選擇音訊或匯入來源。', true);
+  failed();
 });
 audio.addEventListener('ended', safe(async () => {
   if (translationAudio.active) return;

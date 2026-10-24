@@ -651,12 +651,38 @@ try {
   await openGuided();
   check($('resume-card').hidden && !$('resume-card').children.length && !$('mini-player').hidden, 'the active top playback bar hides the duplicate resume card');
   const beforeMediaRetry = mediaLoads, retrySource = audio.src;
+  const storedBeforeRecovery = await storageModule.read(`audio:${guidedTrack.id}`);
   mediaReady = 0; audio.error = { code: 4 }; audio.dispatchEvent(event('error'));
-  check(mediaLoads === beforeMediaRetry + 1 && audio.src === retrySource && !audio.paused, 'an initial unsupported-source error reloads the same local Blob once');
-  audio.dispatchEvent(event('error'));
+  await until(() => mediaLoads === beforeMediaRetry + 1, 'stored Blob rehydrated');
+  const recoveredBytes = await (await fetch(audio.src)).arrayBuffer();
+  check(audio.src !== retrySource && !audio.paused && Buffer.from(recoveredBytes).equals(Buffer.from(await storedBeforeRecovery.arrayBuffer())), 'one recovery uses a fresh local Blob URL with exactly the original audio bytes');
+  check(await storageModule.read(`audio:${guidedTrack.id}`) === storedBeforeRecovery || (await storageModule.read(`audio:${guidedTrack.id}`)).size === storedBeforeRecovery.size, 'media recovery retains the saved audio');
+  audio.dispatchEvent(event('error')); await delay(20);
   check(mediaLoads === beforeMediaRetry + 1, 'a repeated media error cannot trigger an unbounded reload');
-  audio.pause(); audio.dispatchEvent(event('error'));
+  audio.pause(); audio.dispatchEvent(event('error')); await delay(20);
   check(mediaLoads === beforeMediaRetry + 1 && audio.paused, 'a user pause prevents media recovery from resuming playback');
+  // A new selection permits one recovery, but a pause while bytes are pending
+  // must cancel it before creating a URL or calling play/load again.
+  mediaReady = 0; audio.error = null; await openGuided();
+  const arrayBuffer = Blob.prototype.arrayBuffer; let releaseRecovery;
+  Blob.prototype.arrayBuffer = function() { return new Promise(resolve => { releaseRecovery = async () => resolve(await arrayBuffer.call(this)); }); };
+  const pendingSource = audio.src, pendingLoads = mediaLoads;
+  mediaReady = 0; audio.error = { code: 4 }; audio.dispatchEvent(event('error'));
+  await until(() => releaseRecovery, 'recovery bytes pending');
+  audio.pause(); await releaseRecovery(); Blob.prototype.arrayBuffer = arrayBuffer; await delay(30);
+  check(audio.src === pendingSource && mediaLoads === pendingLoads && audio.paused, 'pausing during asynchronous recovery prevents source replacement and playback');
+  for (const action of ['player-stop', 'mini-dismiss']) {
+    audio.pause(); mediaReady = 0; audio.error = null; await openGuided();
+    let releaseBytes;
+    Blob.prototype.arrayBuffer = function() { return new Promise(resolve => { releaseBytes = async () => resolve(await arrayBuffer.call(this)); }); };
+    audio.error = { code: 4 }; audio.dispatchEvent(event('error'));
+    await until(() => releaseBytes, 'recovery pending before ' + action);
+    click(action);
+    const loadsAfterAction = mediaLoads, sourceAfterAction = audio.src;
+    await releaseBytes(); Blob.prototype.arrayBuffer = arrayBuffer; await delay(30);
+    check(audio.paused && audio.src === sourceAfterAction && mediaLoads === loadsAfterAction, action + ' cancels pending recovery without late playback or URL replacement');
+  }
+  mediaReady = 1; audio.error = null; await openGuided();
   mediaReady = 1; audio.error = null; audio.onloadedmetadata?.(); click('player-play');
   click('toggle-guide'); await until(() => !$('generate-guide').disabled, 'manual generation ready');
   check($('guide-status').textContent.includes('尚未產生') && $('guide-help').hidden, 'missing guide has a compact status without a standing explanation');
