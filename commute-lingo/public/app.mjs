@@ -1,19 +1,22 @@
-import { readingCues, activeWord } from './reading.mjs?v=0.2.23';
-import { formatTime, findActive, transcriptCoverage, sentenceTexts } from './core.mjs?v=0.2.23';
-import * as storage from './storage.mjs?v=0.2.23';
-import { createTranslator } from './translation.mjs?v=0.2.23';
-import { DEFAULT_SETTINGS, LIBRARY_KEY, emptyLibrary, validateSettings, title, tracksIn, addAlbum, removeAlbum, removeTrack, rename, placeTrack, changeSettings, libraryBytes, playbackQueue, nextPlayback, sentenceTarget, sentencesFor, legacyLibrary, newId } from './library.mjs?v=0.2.23';
-import { createGuideController } from './guide-controller.mjs?v=0.2.23';
-import { guideAudioRange, GUIDE_INSTRUCTION } from './guide.mjs?v=0.2.23';
-import { importPodcast, importAudioFile, transcribeSavedAudio } from './source.mjs?v=0.2.23';
-import { icon, fillIcons } from './icons.mjs?v=0.2.23';
-import { longPress, isMobileLandscape } from './gestures.mjs?v=0.2.23';
-import { personalBackup, readPersonalBackup, planPersonalRestore } from './backup.mjs?v=0.2.23';
-import { VOCABULARY_KEY, LANGUAGES, WORD_STATUSES, emptyVocabulary, validateVocabulary, validateWord, normalizeWord, wordIdentity, addWord, editWord, needsLookup } from './vocabulary.mjs?v=0.2.23';
-import { lookupDictionary } from './dictionary.mjs?v=0.2.23';
-import { createSubtitleFollow, subtitleScrollTop, sentenceReadingParts, createAudioExcerpt } from './subtitles.mjs?v=0.2.23';
-import { createUpdater, reloadVersion } from './updates.mjs?v=0.2.23';
-import { holdScreenAwake } from './wake-lock.mjs?v=0.2.23';
+import { createChoiceController } from './choice-controller.mjs?v=0.2.34';
+import { createQuizController } from './quiz-controller.mjs?v=0.2.34';
+import { createArticleController } from './article-controller.mjs?v=0.2.34';
+import { readingCues, activeWord } from './reading.mjs?v=0.2.34';
+import { formatTime, findActive, transcriptCoverage, sentenceTexts } from './core.mjs?v=0.2.34';
+import * as storage from './storage.mjs?v=0.2.34';
+import { createTranslator } from './translation.mjs?v=0.2.34';
+import { DEFAULT_SETTINGS, LIBRARY_KEY, emptyLibrary, validateSettings, title, tracksIn, addAlbum, removeAlbum, removeTrack, rename, placeTrack, changeSettings, libraryBytes, playbackQueue, nextPlayback, sentenceTarget, sentencesFor, legacyLibrary, newId } from './library.mjs?v=0.2.34';
+import { createGuideController } from './guide-controller.mjs?v=0.2.34';
+import { guideAudioRange, GUIDE_INSTRUCTION } from './guide.mjs?v=0.2.34';
+import { importPodcast, importAudioFile, transcribeSavedAudio } from './source.mjs?v=0.2.34';
+import { icon, fillIcons } from './icons.mjs?v=0.2.34';
+import { longPress, isMobileLandscape } from './gestures.mjs?v=0.2.34';
+import { personalBackup, readPersonalBackup, planPersonalRestore } from './backup.mjs?v=0.2.34';
+import { VOCABULARY_KEY, LANGUAGES, WORD_STATUSES, emptyVocabulary, validateVocabulary, validateWord, normalizeWord, wordIdentity, addWord, editWord, needsLookup } from './vocabulary.mjs?v=0.2.34';
+import { lookupDictionary } from './dictionary.mjs?v=0.2.34';
+import { createSubtitleFollow, subtitleScrollTop, sentenceReadingParts, createAudioExcerpt } from './subtitles.mjs?v=0.2.34';
+import { createUpdater, reloadVersion } from './updates.mjs?v=0.2.34';
+import { holdScreenAwake } from './wake-lock.mjs?v=0.2.34';
 
 const $ = id => document.getElementById(id);
 const audio = $('audio');
@@ -36,10 +39,10 @@ const currentTrack = () => state.library.tracks.find(track => track.id === state
 const albumOf = track => state.library.albums.find(album => album.id === track?.albumId);
 const safe = action => (...args) => { try { return Promise.resolve(action(...args)).catch(error => notify(error.message, true)); } catch (error) { notify(error.message, true); } };
 const updater = createUpdater({
-  serviceWorker: navigator.serviceWorker, version: '0.2.23',
+  serviceWorker: navigator.serviceWorker, version: '0.2.34',
   isAuto: () => state.library.settings.autoUpdate,
   visible: () => !document.hidden,
-  canUpdate: () => state.ready && audio.paused && !guides.busy && !$('gemini-key').value && !state.loadingAudio && !state.job && !state.pending && !state.writing && !state.clearing && !state.backup && !state.restoring && !state.wordLookup && !state.translation && !state.settingsDirty && !$('player').open && !$('action-dialog').open && !$('source-url').value.trim() && !state.file && !document.activeElement?.matches?.('input,select,textarea'),
+  canUpdate: () => state.ready && audio.paused && !guides.busy && !articles.busy && !quizzes.busy && !choices.busy && !quizzes.editing && !$('gemini-key').value && !state.loadingAudio && !state.job && !state.pending && !state.writing && !state.clearing && !state.backup && !state.restoring && !state.wordLookup && !state.translation && !state.settingsDirty && !$('player').open && !$('action-dialog').open && !$('source-url').value.trim() && !state.file && !document.activeElement?.matches?.('input,select,textarea'),
   prepare: async () => { await saveProgress({ strict: true }); await storage.read(LIBRARY_KEY); },
   lock: locked => { state.updating = locked; $('app').inert = locked; },
   render: ({ text, waiting, applying, checking }) => {
@@ -65,8 +68,48 @@ const guides = createGuideController({
     if (!cue) { notify('這個引句尚無可用的字幕時間，請從原文字幕選擇播放。'); return; }
     closeTranslation(); await translationAudio.start(cue);
   },
+  prepareArticle: id => void articles.start(id), keyChanged: () => { articles.clear(); quizzes.clear(); void articles.refresh().catch(() => {}); void quizzes.refresh().catch(() => {}); },
   broadcast: type => state.channel?.postMessage({ type })
 });
+const articles = createArticleController({
+  getLibrary: () => state.library, getCurrent: currentTrack,
+  available: () => state.ready && !state.updating && !state.clearing && !state.restoring && !state.writing && !guides.keyBusy,
+  changed: updateChinese, notify, broadcast: type => state.channel?.postMessage({ type })
+});
+const quizzes = createQuizController({
+  getBook: () => state.vocabulary, getModel: () => state.library.settings.geminiModel,
+  getLevel: () => state.library.settings.quizLevel || 'B1', saveLevel: level => commit(changeSettings(state.library, { quizLevel: level })),
+  available: () => state.ready && !state.updating && !state.clearing && !state.restoring && !state.writing && !guides.keyBusy,
+  notify, saved: vocabulary => {
+    if (state.clearing || state.restoring) return;
+    cancelWordLookup();
+    if (vocabulary.generation === state.vocabulary.generation && vocabulary.revision >= state.vocabulary.revision) state.vocabulary = validateVocabulary(vocabulary);
+    renderVocabulary(); renderWordSelection();
+  }, broadcast: type => state.channel?.postMessage({ type })
+});
+
+const choices = createChoiceController({
+  getBook: () => state.vocabulary,
+  available: () => state.ready && !state.updating && !state.clearing && !state.restoring && !state.writing,
+  notify, saved: vocabulary => {
+    if(state.clearing || state.restoring)return;
+    if(vocabulary.generation===state.vocabulary.generation && vocabulary.revision>=state.vocabulary.revision)state.vocabulary=validateVocabulary(vocabulary);
+    renderVocabulary();renderWordSelection();quizzes.updateControls();
+  }, broadcast: type => state.channel?.postMessage({type})
+});
+
+function updateChinese(items) {
+  const root = $('subtitle-list'), enabled = state.library.settings.bilingual;
+  root.classList.toggle('bilingual', enabled);
+  $('toggle-bilingual').setAttribute('aria-pressed', String(enabled));
+  $('toggle-bilingual').textContent = enabled ? '中英' : '中文';
+  Array.from(root.children).forEach((row, index) => {
+    const chinese = row.querySelector('.sentence-translation'); if (!chinese) return;
+    const text = items.get(index) || '';
+    if (chinese.textContent !== text) chinese.textContent = text;
+    chinese.hidden = !enabled || !text;
+  });
+}
 function node(tag, className, text) { const element = document.createElement(tag); if (className) element.className = className; if (text !== undefined) element.textContent = text; return element; }
 function button(label, className, action, symbol) {
   const element = node('button', className, symbol ? undefined : label); element.type = 'button';
@@ -95,7 +138,7 @@ function showView(name) {
   });
   if (location.hash !== `#${name}`) history.replaceState(null, '', `#${name}`);
   if (name === 'library') refreshStorage();
-  if (name === 'vocabulary') renderVocabulary();
+  if (name === 'vocabulary') { renderVocabulary(); void quizzes.refresh().catch(error => notify(error.message, true)); void choices.refresh().catch(error => notify(error.message,true)); }
   window.scrollTo({ top: 0 });
 }
 async function commit(next, options = {}) {
@@ -133,7 +176,7 @@ function render() {
   guides.render();
 }
 function renderWriteControls() {
-  guides.updateControls();
+  guides.updateControls(); articles.updateControls(); quizzes.updateControls(); choices.updateControls();
   const disabled = !state.ready || state.restoring || state.writing;
   $('restore-backup').disabled = disabled;
   $('restore-backup-button').disabled = disabled;
@@ -280,9 +323,8 @@ function renderVocabulary() {
     const option = node('option', '', caption); option.value = value; $('vocabulary-tag').append(option);
   }
   $('vocabulary-tag').value = ['all', 'untagged', ...tags.map(tag => `tag:${tag}`)].includes(selectedTag) ? selectedTag : 'all';
-  const query = $('vocabulary-search').value.trim().toLowerCase(), filter = $('vocabulary-filter').value, tag = $('vocabulary-tag').value;
+  const filter = $('vocabulary-filter').value, tag = $('vocabulary-tag').value;
   const words = state.vocabulary.words.filter(word =>
-    (!query || [word.word, word.translation, word.note, word.sourceTitle, ...word.tags].join('\n').toLowerCase().includes(query)) &&
     (filter === 'all' || filter === 'starred' && word.starred || filter === 'pending' && needsLookup(word) || word.status === filter) &&
     (tag === 'all' || tag === 'untagged' && !word.tags.length || tag.startsWith('tag:') && word.tags.includes(tag.slice(4)))
   ).sort((a, b) => b.createdAt - a.createdAt || a.word.localeCompare(b.word));
@@ -293,12 +335,13 @@ function renderVocabulary() {
     const main = button('', 'word-main', () => editWordDetails(word.id));
     main.append(node('strong', '', word.word), node('span', 'word-meaning', word.translation || '中文解釋待補'));
     main.append(node('small', '', `${LANGUAGES[word.language]} · ${WORD_STATUSES[word.status]}${state.wordLookup?.id === word.id ? ' · 正在查詢…' : needsLookup(word) ? ' · 解釋待補' : ''}`));
+    main.append(node('small', 'word-quiz-stats', `測驗 · 答對 ${word.quizStats?.correct || 0} · 答錯 ${word.quizStats?.incorrect || 0}`));
     if (word.tags.length) main.append(node('span', 'word-tags', word.tags.slice(0, 3).join(' · ')));
     const star = button(word.starred ? '★' : '☆', 'word-star', () => commitWords(editWord(state.vocabulary, word.id, { starred: !word.starred })));
     star.setAttribute('aria-label', `${word.starred ? '取消重要' : '標記重要'} ${word.word}`); star.setAttribute('aria-pressed', String(word.starred));
     row.append(main, star, button(`管理單字 ${word.word}`, 'round-button', () => wordMenu(word.id), 'more')); root.append(row);
   }
-  if (!words.length) empty(root, state.vocabulary.words.length ? '沒有符合的單字' : '每次聽懂，多留下一個字', state.vocabulary.words.length ? '試著調整搜尋或分類。' : '在翻譯視窗選取單字收藏，也可以手動新增。');
+  if (!words.length) empty(root, state.vocabulary.words.length ? '沒有符合的單字' : '每次聽懂，多留下一個字', state.vocabulary.words.length ? '試著調整分類。' : '在翻譯視窗選取單字收藏，也可以手動新增。');
   $('vocabulary-more').hidden = words.length <= state.wordLimit;
 }
 function areaField(root, caption, value, id, maxLength) {
@@ -320,26 +363,22 @@ async function createWord() {
 async function editWordDetails(id) {
   const word = state.vocabulary.words.find(item => item.id === id); if (!word) return;
   if (state.wordLookup?.id === id) { cancelWordLookup(); renderVocabulary(); }
-  let translation, tags, status, note, starred;
-  await ask({ heading: word.word, description: `${LANGUAGES[word.language]}${word.sourceTitle ? ` · 來源：${word.sourceTitle}` : ''}\n收藏於 ${new Date(word.createdAt).toLocaleDateString('zh-TW')}`, confirm: '儲存變更',
+  let translation, tags;
+  await ask({ heading: word.word, confirm: '儲存變更',
     build: root => {
-      translation = areaField(root, '中文解釋（可修訂或補充不同意思）', word.translation, 'word-translation', 500);
-      tags = textField(root, '標籤（用逗號分隔）', word.tags.join(','), 'word-tags'); tags.required = false; tags.maxLength = 399;
-      status = selectField(root, '學習狀態', Object.entries(WORD_STATUSES), 'word-status'); status.value = word.status;
-      const label = node('label', 'choice-card'); starred = node('input'); starred.type = 'checkbox'; starred.checked = word.starred; starred.id = 'word-starred'; label.append(starred, node('span', '', '標記為重要單字')); root.append(label);
-      note = areaField(root, '個人筆記', word.note, 'word-note', 2000);
-      if (word.dictionary) {
-        const dictionary = node('section', 'word-dictionary'); dictionary.append(node('h3', '', '字典釋義（節錄）'));
-        if (word.dictionary.phonetic) dictionary.append(node('p', '', word.dictionary.phonetic));
-        for (const sense of word.dictionary.senses) dictionary.append(node('p', '', `${sense.partOfSpeech} · ${sense.definition}`));
-        const credit = node('p', 'small');
-        for (const [caption, url] of [['FreeDictionaryAPI.com', 'https://freedictionaryapi.com/'], ['Wiktionary 原條目', word.dictionary.sourceURL], ['CC BY-SA 4.0', word.dictionary.license.url]]) {
-          const link = node('a', '', caption); link.href = url; link.target = '_blank'; link.rel = 'noopener noreferrer'; credit.append(link, node('span', '', ' '));
-        }
-        dictionary.append(credit); root.append(dictionary);
+      translation = areaField(root, '中文解釋', word.translation, 'word-translation', 500);
+      tags = textField(root, '標籤分類', word.tags.join(','), 'word-tags'); tags.required = false; tags.maxLength = 399; tags.placeholder = '選擇下方標籤，或輸入新標籤（逗號分隔）';
+      const choices = node('div', 'word-tag-options'); choices.setAttribute('role', 'group'); choices.setAttribute('aria-label', '選擇標籤分類');
+      const known = [...new Set([...word.tags, ...state.vocabulary.words.flatMap(item => item.tags)])].slice(0, 32);
+      const selected = () => tags.value.split(/[,，、]/u).map(tag => tag.trim()).filter(Boolean);
+      const refresh = () => choices.querySelectorAll('button').forEach(choice => choice.setAttribute('aria-pressed', String(selected().includes(choice.textContent))));
+      for (const tag of known) {
+        const choice = button(tag, 'word-tag-choice', () => {
+          const values = selected(); tags.value = values.includes(tag) ? values.filter(value => value !== tag).join(',') : [...values, tag].join(','); refresh();
+        }); choices.append(choice);
       }
-      root.append(node('p', 'small muted', word.translationSource === 'gemini' ? '中文與原句來自 Gemini 導讀，可自行修訂。' : word.translationSource === 'mymemory' ? '中文為 MyMemory 翻譯，可依原意修訂。' : '中文解釋與筆記由你整理；不會因音檔刪除而消失。'));
-    }, accept: async () => { await commitWords(editWord(state.vocabulary, id, { translation: translation.value, tags: tags.value, status: status.value, starred: starred.checked, note: note.value })); notify('單字已更新。'); }
+      tags.addEventListener('input', refresh); refresh(); root.append(choices);
+    }, accept: async () => { await commitWords(editWord(state.vocabulary, id, { translation: translation.value, tags: tags.value })); notify('單字已更新。'); }
   });
 }
 async function wordMenu(id) {
@@ -357,7 +396,7 @@ function applyAppearance(settings) {
   document.documentElement.style.setProperty('--subtitle-size', { normal: '18.4px', large: '22.4px', xlarge: '27.2px' }[settings.subtitleSize]);
   $('brand-icon').src = `./icon-${settings.icon}.svg`; $('favicon').href = `./icon-${settings.icon}.svg`;
   $('touch-icon').href = `./icon-${settings.icon}-192.png`;
-  $('manifest').href = `./manifest-${settings.icon}.webmanifest?v=0.2.23`;
+  $('manifest').href = `./manifest-${settings.icon}.webmanifest?v=0.2.34`;
 }
 async function refreshStorage() {
   const total = libraryBytes(state.library);
@@ -436,10 +475,31 @@ async function albumMenu(album) {
 }
 async function trackMenu(track) {
   let selected;
-  const choice = await ask({ heading: track.title, confirm: '繼續', build: root => { selected = selectField(root, '音訊操作', [['rename', '編輯音訊名稱'], ['transcribe', '重新產生字幕'], ['delete', '刪除此音訊']], 'track-action'); }, accept: () => selected.value });
-  if (choice === 'rename') await renameItem('track', track);
+  const choice = await ask({ heading: track.title, confirm: '繼續', build: root => { selected = selectField(root, '音訊操作', [...($('player').classList.contains('reading-mode') ? [['playback', '速度與循環播放'], ['article', 'AI 全文翻譯／續傳'], ...(articles.busy ? [['cancel-article', '停止等待翻譯']] : []), ['guide', '開啟導讀'], ['listening', '一般播放'], ['stop', '停止播放']] : []), ['rename', '編輯音訊名稱'], ['transcribe', '重新產生字幕'], ['delete', '刪除此音訊']], 'track-action'); }, accept: () => selected.value });
+  if (choice === 'playback') await readingPlaybackMenu();
+  else if (choice === 'article') {
+    const accepted = await ask({ heading: 'AI 全文翻譯', description: '文章會分批傳送至 Gemini，使用目前的 Key 額度；已完成的句子會保存在此裝置。', confirm: '開始／繼續' });
+    if (accepted) { if (!state.library.settings.bilingual) await commit(changeSettings(state.library, { bilingual: true })); void articles.start(track.id); }
+  }
+  else if (choice === 'cancel-article') $('cancel-article').onclick();
+  else if (choice === 'guide') setGuideVisible(true);
+  else if (choice === 'listening') setSubtitlesVisible(false);
+  else if (choice === 'stop') $('player-stop').onclick();
+  else if (choice === 'rename') await renameItem('track', track);
   else if (choice === 'delete') await deleteItem('track', track);
   else if (choice === 'transcribe') await regenerateTranscript(track.id);
+}
+
+async function readingPlaybackMenu() {
+  let speed, repeat;
+  const accepted = await ask({ heading: '播放設定', confirm: '套用', build: root => {
+    speed = selectField(root, '速度', [...$('playback-speed').options].map(option => [option.value, option.textContent]), 'reading-speed'); speed.value = String(audio.playbackRate);
+    repeat = selectField(root, '循環', [['off', '順序'], ['track', '單曲循環'], ['album', '專輯循環']], 'reading-repeat'); repeat.value = state.library.settings.repeatMode;
+  } });
+  if (!accepted) return;
+  await commit(changeSettings(state.library, { repeatMode: repeat.value }));
+  $('playback-speed').value = speed.value; $('playback-speed').onchange();
+  if (repeat.value === 'album') await Promise.allSettled(tracksIn(state.library, currentTrack().albumId).map(track => prepareURL(track.id)));
 }
 
 function updateSourceControls() {
@@ -604,7 +664,8 @@ async function translateSentence(index, selectedText) {
   $('translation-text').textContent = ''; $('translation-status').textContent = '正在取得這一句的中文翻譯…';
   $('subtitle-list').children[index]?.querySelector('.sentence-text')?.classList.add('translating');
   try {
-    const output = await translator.translate(text, track.language, { signal: controller.signal });
+    const savedChinese = new Map(articles.current().map(item => [item.id, item.text])).get(index);
+    const output = savedChinese ? { translation: savedChinese, persisted: true, cached: true } : await translator.translate(text, track.language, { signal: controller.signal });
     if (state.translation !== controller) return;
     $('translation-text').textContent = output.translation;
     $('translation-status').textContent = output.persisted
@@ -617,23 +678,34 @@ function renderSubtitles() {
   const root = $('subtitle-list'); root.replaceChildren();
   if (!state.sentences.length) root.append(node('p', 'small', '尚無字幕'));
   state.sentences.forEach((cue, index) => {
-    const row = node('div', 'subtitle-cue');
-    const sentence = node('button', 'sentence-text'); sentence.type = 'button';
+    const row = node('span', 'subtitle-cue');
+    const sentence = node('span', 'sentence-text'); sentence.setAttribute('role', 'button'); sentence.tabIndex = 0;
+    const measured = (parent, text) => {
+      // Reserve the heavier glyph width permanently. CSS-generated text is hidden
+      // from accessibility/copy; actual DOM text remains exactly the subtitle.
+      for (const part of text.match(/\s+|[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]|[^\s\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]{1,16}/gu) || []) {
+        if (/^\s+$/u.test(part)) { parent.append(document.createTextNode(part)); continue; }
+        const token = node('span', 'reading-token'); token.dataset.layoutText = part;
+        token.append(node('span', 'reading-ink', part)); parent.append(token);
+      }
+    };
     if (cue.words?.length) {
       cue.words.forEach((word, wordIndex) => {
         if (wordIndex && !/^(ja|zh)/u.test(currentTrack()?.language || 'en')) sentence.append(document.createTextNode(' '));
-        const span = node('span', 'reading-word', word.text); span.dataset.wordIndex = String(wordIndex); sentence.append(span);
+        const span = node('span', 'reading-word'); measured(span, word.text); span.dataset.wordIndex = String(wordIndex); sentence.append(span);
       });
-    } else sentence.textContent = cue.text;
-    sentence.setAttribute('aria-label', '點一下播放此段；長按或按 Enter 翻譯完整原句');
+    } else measured(sentence, cue.text);
+    sentence.setAttribute('aria-label', cue.text);
+    sentence.setAttribute('aria-description', '點一下播放此段；長按或按 Enter 翻譯完整原句');
     state.gestureCleanups.push(longPress(sentence, () => translateSentence(index, cue.sourceText || cue.text)));
     sentence.onclick = safe(event => { if (!event.defaultPrevented) seekPlayback(cue.start, true); });
-    row.append(sentence);
+    if (cue.timingUncertain) sentence.setAttribute('title', '時間範圍估計');
+    else if (cue.incomplete) sentence.setAttribute('title', '句尾未完整');
+    row.append(sentence, node('span', 'sentence-translation'));
     if (cue.words?.length) row.classList.add('timed-reading');
-    if (cue.incomplete) row.append(node('small', '', '句尾未完整'));
-    if (cue.timingUncertain) row.append(node('small', '', '時間範圍估計'));
-    root.append(row);
+    root.append(row, document.createTextNode(' '));
   });
+  updateChinese(new Map()); void articles.refresh().catch(() => {});
   state.active = state.activeWord = -1; highlight();
 }
 function highlight(force = false) {
@@ -663,7 +735,7 @@ function centerCue(row) {
 }
 function setSubtitlesVisible(show) {
   if (show) { $('guide-panel').hidden = true; $('toggle-guide').setAttribute('aria-pressed', 'false'); $('player').classList.remove('guide-open'); }
-  $('subtitles-panel').hidden = !show;
+  $('subtitles-panel').hidden = !show; $('player').classList.toggle('reading-mode', show);
   $('toggle-subtitles').setAttribute('aria-pressed', String(show));
   $('player').classList.toggle('subtitles-open', show);
   $('player').scrollTop = 0;
@@ -763,7 +835,7 @@ function updatePlayer() {
   $('playback-repeat').setAttribute('aria-label', `播放模式：${{ off: '一般播放', track: '單曲循環', album: '專輯循環' }[mode]}，點按切換`);
   $('playback-repeat').classList.toggle('repeat-active', mode !== 'off');
   $('mini-title').textContent = track.title; $('mini-subtitle').textContent = albumOf(track)?.title || 'CommuteLingo';
-  $('player-title').textContent = track.title; $('player-show').textContent = track.show || '你的通勤語言時光'; $('player-album').textContent = albumOf(track)?.title || '';
+  $('reading-title').textContent = track.title; $('player-title').textContent = track.title; $('player-show').textContent = track.show || '你的通勤語言時光'; $('player-album').textContent = albumOf(track)?.title || '';
   cover($('mini-cover'), track.albumId); cover($('player-art'), track.albumId);
   for (const id of ['mini-play', 'player-play']) { $(id).innerHTML = icon(audio.paused ? 'play' : 'pause'); $(id).setAttribute('aria-label', audio.paused ? '播放' : '暫停'); }
   for (const id of ['mini-next', 'previous-sentence', 'next-sentence']) $(id).disabled = !state.sentences.length;
@@ -774,6 +846,7 @@ function updateTimeline() {
   const time = Math.max(0, audio.currentTime || 0), duration = track.duration;
   $('playback-range').max = duration;
   if (!state.seeking) $('playback-range').value = time;
+  $('reading-clock').textContent = `${clock(time)} / ${clock(duration)}`;
   $('elapsed').textContent = clock(time); $('remaining').textContent = `−${clock(Math.max(0, duration - time))}`;
   $('mini-progress-fill').style.width = `${Math.min(100, time / duration * 100)}%`;
   if ('mediaSession' in navigator && Number.isFinite(duration) && duration > 0) {
@@ -875,7 +948,7 @@ async function clearAll() {
   await ask({ heading: '清除全部收藏與資料？', description: `將刪除 ${state.library.albums.length} 個專輯、${state.library.tracks.length} 個音訊（${bytes(libraryBytes(state.library))}）、${state.vocabulary.words.length} 個單字與筆記、字幕、導讀、Gemini Key、翻譯快取、設定、舊版資料與下載的語音模型。
 此操作無法復原。App 頁面程式會保留；其他 App 的資料不受影響。`, confirm: '確認全部清除', danger: true,
     accept: async () => {
-      state.clearing = true; guides.clear(); cancelWordLookup(); state.backup?.abort(); closeTranslation(); audio.pause();
+      state.clearing = true; guides.clear(); articles.clear(); quizzes.clear(); choices.clear(); cancelWordLookup(); state.backup?.abort(); closeTranslation(); audio.pause();
       try {
         await storage.clear();
         releasePlayer(); translator.clear(); state.pending = null; state.legacy = null; state.library = emptyLibrary(); state.vocabulary = emptyVocabulary(); state.settingsDirty = false; state.album = null;
@@ -947,7 +1020,7 @@ $('restore-backup').addEventListener('change', safe(async () => { const file = $
 $('add-word').onclick = safe(createWord);
 $('save-selected-word').onclick = safe(saveSelectedWord);
 document.addEventListener('selectionchange', captureWordSelection);
-for (const name of ['vocabulary-search', 'vocabulary-filter', 'vocabulary-tag']) $(name).addEventListener(name === 'vocabulary-search' ? 'input' : 'change', () => { state.wordLimit = 40; renderVocabulary(); });
+for (const name of ['vocabulary-filter', 'vocabulary-tag']) $(name).addEventListener('change', () => { state.wordLimit = 40; renderVocabulary(); });
 $('vocabulary-more').onclick = () => { state.wordLimit += 40; renderVocabulary(); };
 $('legacy-backup').onclick = () => { if (state.legacy?.file) download(state.legacy.file, state.legacy.name || 'legacy-audio.mp3'); };
 $('mini-open').onclick = openPlayer; $('mini-play').onclick = togglePlay; $('player-play').onclick = togglePlay;
@@ -966,6 +1039,16 @@ $('playback-speed').onchange = () => { audio.playbackRate = +$('playback-speed')
 $('playback-range').oninput = event => { state.seeking = true; $('elapsed').textContent = clock(+event.target.value); };
 $('playback-range').onchange = event => { state.seeking = false; seekPlayback(+event.target.value); };
 $('toggle-subtitles').onclick = () => setSubtitlesVisible($('subtitles-panel').hidden);
+$('toggle-bilingual').onclick = safe(async () => {
+  const list = $('subtitle-list'), row = list.children[state.active], before = row?.getBoundingClientRect().top;
+  await commit(changeSettings(state.library, { bilingual: !state.library.settings.bilingual }));
+  articles.render();
+  if (row && Number.isFinite(before)) list.scrollTop += row.getBoundingClientRect().top - before;
+});
+$('prepare-article').onchange = safe(async () => {
+  try { await commit(changeSettings(state.library, { translateWithGuide: $('prepare-article').checked })); }
+  finally { $('prepare-article').checked = state.library.settings.translateWithGuide; }
+});
 $('follow-subtitles').onclick = () => subtitleFollow.resume();
 $('subtitle-list').addEventListener('pointerdown', event => { if (event.pointerType !== 'touch') subtitleFollow.hold('pointer'); }, { passive: true });
 for (const name of ['pointerup', 'pointercancel']) window.addEventListener(name, () => subtitleFollow.release('pointer'), { passive: true });
@@ -1034,7 +1117,7 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden) { translationAudio.pause(); if (state.job) cancelImport('來源匯入因離開前景而停止，請回來後重新開始。原有收藏已保留。'); saveProgress(); }
   else { updateTimeline(); if (!audio.paused) subtitleFollow.resume(); orientation(); if (state.library.settings.autoUpdate) void updater.check(); }
 });
-window.addEventListener('pagehide', () => { guides.clear(); translationAudio.pause(); if (state.job) cancelImport(); state.translation?.abort(); state.backup?.abort(); cancelWordLookup(); saveProgress(); });
+window.addEventListener('pagehide', () => { guides.clear(); articles.clear(); quizzes.clear(); choices.clear(); translationAudio.pause(); if (state.job) cancelImport(); state.translation?.abort(); state.backup?.abort(); cancelWordLookup(); saveProgress(); });
 window.addEventListener('orientationchange', orientation); screen.orientation?.addEventListener('change', orientation); window.addEventListener('resize', orientation);
 async function offlineStatus() {
   if (!('serviceWorker' in navigator)) { void updater.start(); $('offline-status').textContent = '此瀏覽器未提供離線頁面支援。'; return; }
@@ -1044,7 +1127,7 @@ async function offlineStatus() {
     const check = () => {
       const channel = new MessageChannel();
       const timer = setTimeout(() => { channel.port1.close(); $('offline-status').textContent = '新版可在線使用；請在保存後關閉舊分頁再開啟，以更新離線頁面。'; }, 2000);
-      channel.port1.onmessage = ({ data }) => { clearTimeout(timer); channel.port1.close(); $('offline-status').textContent = data.version === '0.2.23' && data.ready ? '頁面已可離線使用；已收藏的音訊與快取翻譯可離線讀取，新匯入與新翻譯需要連線。' : '新版可在線使用，離線頁面尚待更新。'; };
+      channel.port1.onmessage = ({ data }) => { clearTimeout(timer); channel.port1.close(); $('offline-status').textContent = data.version === '0.2.34' && data.ready ? '頁面已可離線使用；已收藏的音訊與快取翻譯可離線讀取，新匯入與新翻譯需要連線。' : '新版可在線使用，離線頁面尚待更新。'; };
       registration.active?.postMessage({ type: 'CACHE_VERSION' }, [channel.port2]);
     };
     navigator.serviceWorker.addEventListener('controllerchange', check); check();
@@ -1087,11 +1170,14 @@ async function boot() {
     if (globalThis.BroadcastChannel) {
       state.channel = new BroadcastChannel('commute-lingo-library-v2');
       state.channel.onmessage = safe(async ({ data }) => {
-        if (data.type === 'gemini-key-changed') { guides.clear(); await guides.refresh(); return; }
+        if (data.type === 'gemini-key-changed') { guides.clear(); articles.clear(); quizzes.clear(); await guides.refresh(); await articles.refresh(); await quizzes.refresh(); return; }
+        if (data.type === 'choice-changed') { await choices.refresh(); return; }
+        if (data.type === 'quiz-changed') { await quizzes.refresh(); return; }
+        if (data.type === 'article-changed') { await articles.refresh(); return; }
         if (data.type === 'guide-changed') { await guides.refresh(); return; }
         try {
           if (data.type === 'cleared') {
-            state.clearing = true; guides.clear(); cancelImport('其他分頁已清除收藏。'); releasePlayer();
+            state.clearing = true; guides.clear(); articles.clear(); quizzes.clear(); choices.clear(); cancelImport('其他分頁已清除收藏。'); releasePlayer();
             state.pending = null; state.legacy = null; state.backup?.abort(); cancelWordLookup(); state.settingsDirty = false; translator.clear();
           }
           const fresh = await storage.readPersonalData();
@@ -1103,7 +1189,7 @@ async function boot() {
           if (state.current && !currentTrack()) releasePlayer();
           if (data.type === 'words-changed' && !libraryChanged) { renderVocabulary(); renderWordSelection(); }
           else render();
-          await guides.refresh();
+          await guides.refresh(); await articles.refresh(); await quizzes.refresh(); await choices.refresh();
           notify('已同步這個裝置其他分頁的資料變更。');
         } finally { state.clearing = false; renderWriteControls(); }
       });

@@ -1,5 +1,7 @@
-import { GUIDE_INSTRUCTION, GUIDE_OUTPUT_RULES, normalizeGuidePrompt, GUIDE_SCHEMA, GUIDE_MAX_INPUT, GUIDE_MODEL, validateGuide } from './guide.mjs?v=0.2.23';
-import { validateApiKey } from './key-vault.mjs?v=0.2.23';
+import { quizInstruction, validateQuizLevel, QUIZ_SCHEMA, validateGeneratedQuiz } from './quiz.mjs?v=0.2.34';
+import { ARTICLE_PROMPT, ARTICLE_SCHEMA, validateTranslations } from './article.mjs?v=0.2.34';
+import { GUIDE_INSTRUCTION, GUIDE_OUTPUT_RULES, normalizeGuidePrompt, GUIDE_SCHEMA, GUIDE_MAX_INPUT, GUIDE_MODEL, validateGuide } from './guide.mjs?v=0.2.34';
+import { validateApiKey } from './key-vault.mjs?v=0.2.34';
 
 export class GeminiError extends Error {
   constructor(code, status) {
@@ -9,11 +11,11 @@ export class GeminiError extends Error {
   }
 }
 // Exactly one request per invocation. Provider errors, keys and prompts are never logged.
-async function request({ key, model, text, signal, progress = () => {}, prompt = GUIDE_INSTRUCTION, verify = false, fetchImpl = globalThis.fetch }) {
+async function request({ key, model, text, signal, progress = () => {}, prompt = GUIDE_INSTRUCTION, verify = false, articleTargets, quiz = false, quizLevel = 'B1', fetchImpl = globalThis.fetch }) {
   validateApiKey(key);
   if (model !== GUIDE_MODEL) throw Error('導讀模型不可用，請使用 3.5 Flash-Lite。');
   if (typeof text !== 'string' || !text.trim() || text.length > GUIDE_MAX_INPUT || text.includes(key)) throw Error('導讀輸入格式或長度無效；每次最多 60,000 字元。');
-  const instruction = verify ? '' : normalizeGuidePrompt(prompt);
+  const instruction = verify ? '' : quiz ? quizInstruction(quizLevel) : articleTargets ? ARTICLE_PROMPT : normalizeGuidePrompt(prompt);
   if (!verify && instruction.includes(key)) throw Error('導讀 Prompt 不可包含 API Key。');
   const controller = new AbortController(), cancel = () => controller.abort();
   signal?.addEventListener('abort', cancel, { once: true });
@@ -22,13 +24,13 @@ async function request({ key, model, text, signal, progress = () => {}, prompt =
   const usage = {};
   try {
     if (signal?.aborted) throw new GeminiError('CANCELLED');
-    const generationConfig = { maxOutputTokens: verify ? 1024 : 8192 };
-    if (!verify) { generationConfig.responseMimeType = 'application/json'; generationConfig.responseJsonSchema = GUIDE_SCHEMA; }
+    const generationConfig = { maxOutputTokens: verify ? 1024 : quiz ? 4096 : 8192 };
+    if (!verify) { generationConfig.responseMimeType = 'application/json'; generationConfig.responseJsonSchema = quiz ? QUIZ_SCHEMA : articleTargets ? ARTICLE_SCHEMA : GUIDE_SCHEMA; }
     progress('等待 Gemini 回應…');
     const response = await fetchImpl(`https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse`, {
       method: 'POST', credentials: 'omit', mode: 'cors', redirect: 'error', cache: 'no-store', referrerPolicy: 'no-referrer', signal: controller.signal,
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
-      body: JSON.stringify({ systemInstruction: { parts: [{ text: verify ? '只回覆 OK。' : instruction + '\n\n' + GUIDE_OUTPUT_RULES }] }, contents: [{ role: 'user', parts: [{ text }] }], generationConfig })
+      body: JSON.stringify({ systemInstruction: { parts: [{ text: verify ? '只回覆 OK。' : instruction + (articleTargets || quiz ? '' : '\n\n' + GUIDE_OUTPUT_RULES) }] }, contents: [{ role: 'user', parts: [{ text }] }], generationConfig })
     });
     if (!response.ok) { await response.body?.cancel().catch(() => {}); throw new GeminiError('HTTP', response.status); }
     if (!/\btext\/event-stream\b/i.test(response.headers.get('content-type') || '')) throw new GeminiError('RESPONSE');
@@ -73,7 +75,7 @@ async function request({ key, model, text, signal, progress = () => {}, prompt =
     if (verify) return { usage };
     let parsed; try { parsed = JSON.parse(result); } catch { throw new GeminiError('RESPONSE'); }
     let content;
-    try { content = validateGuide(parsed); } catch { throw new GeminiError('FORMAT'); }
+    try { content = quiz ? validateGeneratedQuiz(parsed, { requireExplanations: true }) : articleTargets ? validateTranslations(parsed, articleTargets) : validateGuide(parsed); } catch { throw new GeminiError('FORMAT'); }
     return { content, usage };
   } catch (error) {
     if (controller.signal.aborted) throw new GeminiError(signal?.aborted ? 'CANCELLED' : 'TIMEOUT');
@@ -83,3 +85,7 @@ async function request({ key, model, text, signal, progress = () => {}, prompt =
 }
 export function generateGuide(options) { return request(options); }
 export function verifyGeminiKey(options) { return request({ ...options, text: 'Please reply with OK.', verify: true }); }
+
+export function translateArticleBatch({ targets, ...options }) { return request({ ...options, articleTargets: targets }); }
+
+export function generateQuiz({ level = 'B1', ...options }) { return request({ ...options, quiz: true, quizLevel: validateQuizLevel(level) }); }

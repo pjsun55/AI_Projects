@@ -1,3 +1,4 @@
+import { runQuizBrowser } from './quiz-browser.mjs';
 // CI only: use this app's locked Playwright dependency. No Mac install.
 import assert from 'node:assert/strict';
 import { chromium, webkit, expect } from '@playwright/test';
@@ -145,7 +146,8 @@ try {
           await page.locator('#toggle-subtitles').click();
           const layout = await page.evaluate(() => {
             const sheet = document.getElementById('player'), list = document.getElementById('subtitle-list'), rect = sheet.getBoundingClientRect();
-            const controls = ['player-close', 'player-menu', 'playback-range', 'previous-sentence', 'player-play', 'next-sentence', 'playback-speed', 'player-stop', 'playback-repeat', 'toggle-subtitles', 'toggle-guide', 'follow-subtitles'];
+            const controls = ['player-close', 'player-menu', 'toggle-bilingual', 'reading-clock', 'previous-sentence', 'player-play', 'next-sentence', 'follow-subtitles'];
+            if (getComputedStyle(document.getElementById('playback-range')).display !== 'none' && document.getElementById('playback-range').getBoundingClientRect().width) throw Error('Reading time must not be draggable');
             return { top: rect.top, bottom: rect.bottom, height: innerHeight, listHeight: list.clientHeight, overflow: sheet.scrollHeight - sheet.clientHeight, artwork: getComputedStyle(document.getElementById('player-art')).display,
               controlsVisible: controls.every(id => { const r = document.getElementById(id).getBoundingClientRect(); return r.width > 0 && r.height > 0 && r.top >= rect.top && r.bottom <= rect.bottom + 1 && r.left >= rect.left && r.right <= rect.right + 1; }) };
           });
@@ -162,7 +164,7 @@ try {
             const inactive = document.querySelector('.subtitle-cue:not(.active) .sentence-text');
             return { activeWeight: +getComputedStyle(active).fontWeight, inactiveWeight: +getComputedStyle(inactive).fontWeight, differentColors: getComputedStyle(active).color !== getComputedStyle(inactive).color };
           });
-          assert.ok(emphasis.activeWeight <= 500 && emphasis.inactiveWeight <= 500 && emphasis.differentColors, JSON.stringify(emphasis));
+          assert.ok(emphasis.activeWeight === 750 && emphasis.inactiveWeight === 400 && emphasis.differentColors, JSON.stringify(emphasis));
           await page.evaluate(() => { const audio = document.getElementById('audio'); audio.currentTime = 0; audio.dispatchEvent(new Event('timeupdate')); });
           await page.screenshot({ path: new URL(`${name}-${viewport.width}-${size}-captions.png`, output).pathname });
           // Keyboard translation reaches the same long-press action, using a fake service.
@@ -215,7 +217,13 @@ try {
           await expect(page.locator('#translation-text')).toHaveText(translationFixture);
           await page.locator('#player-play').click();
           assert.equal(await page.locator('#translation-panel').isVisible(), false);
-          await page.locator('#toggle-subtitles').click();
+          await page.locator('#player-menu').click();
+          await page.locator('#track-action').selectOption('playback'); await page.locator('#dialog-confirm').click();
+          await page.locator('#reading-speed').selectOption('1.25'); await page.locator('#reading-repeat').selectOption('off'); await page.locator('#dialog-confirm').click();
+          await expect.poll(() => page.locator('#audio').evaluate(audio => audio.playbackRate)).toBe(1.25);
+          await page.locator('#player-menu').click(); await page.locator('#track-action').selectOption('stop'); await page.locator('#dialog-confirm').click();
+          await expect.poll(() => page.locator('#audio').evaluate(audio => audio.currentTime)).toBe(0);
+          await page.locator('#player-menu').click(); await page.locator('#track-action').selectOption('listening'); await page.locator('#dialog-confirm').click();
           assert.equal(await page.locator('#player-art').isVisible(), true);
           await page.locator('#player-close').click();
           console.log(JSON.stringify({ browser: name, viewport, subtitleSize: size, status: 'PASS', captionPixels: layout.listHeight }));
@@ -247,7 +255,7 @@ try {
         await expect(page.locator('#subtitle-list .subtitle-cue')).toHaveCount(2);
         await expect(page.locator('#toggle-subtitles')).toHaveAttribute('aria-label', '字幕未完整');
         await expect(page.locator('#transcript-notice')).toHaveCount(0);
-        await expect(page.locator('#subtitle-list')).toContainText('時間範圍估計');
+        await expect(page.locator('#subtitle-list [title="時間範圍估計"]')).toHaveCount(1);
         assert.ok(await page.locator('#subtitle-list').evaluate(list => list.clientHeight >= 40), 'Partial transcript notices must leave room to read the subtitles.');
         await page.locator('#audio').evaluate(audio => { audio.pause(); audio.currentTime = 1.5; audio.dispatchEvent(new Event('timeupdate')); });
         await expect(page.locator('#subtitle-list .active')).toHaveCount(1);
@@ -267,6 +275,7 @@ try {
         if (Math.min(viewport.width, viewport.height) >= 600) {
           await runResponsiveBrowser(page, { viewport, output: readingOutput, onPhase: value => { phase = value; } });
         }
+        await runQuizBrowser(page, { version, output: vocabularyOutput, onPhase: value => { phase = value; } });
         if (name === 'chromium') {
           phase = 'offline-preconditions';
           // Cache readiness alone does not establish that this document is

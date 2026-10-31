@@ -14,10 +14,18 @@ export async function runVocabularyBrowser(page, { version, output, onPhase = ()
   await expect.poll(async () => (await words())?.words[0]?.dictionary?.senses.length).toBeGreaterThan(0);
   const id = (await words()).words[0].id;
   const card = () => page.locator(`[data-word-id="${id}"]`);
+  // Seed metadata from earlier releases: simplified editing must preserve it.
+  await page.evaluate(async ({version,id}) => {
+    const storage=await import('./storage.mjs?v='+version),domain=await import('./vocabulary.mjs?v='+version),book=await storage.read('vocabulary-v1');
+    await storage.commitVocabulary({...domain.editWord(book,id,{note:'<img src=x onerror=alert(1)> public text note',status:'known'}),revision:book.revision+1},{expectedRevision:book.revision,expectedGeneration:book.generation});
+  },{version,id});
+  await page.reload();
   onPhase('vocabulary-edit-reload');
   await card().locator('.word-main').click();
-  await page.locator('#word-translation').fill('復原力'); await page.locator('#word-note').fill('<img src=x onerror=alert(1)> public text note');
-  await page.locator('#word-status').selectOption('known'); await page.locator('#dialog-confirm').click();
+  await expect(page.locator('#word-note, #word-status, #word-starred, #dialog-fields .word-dictionary')).toHaveCount(0);
+  await page.locator('#word-translation').fill('復原力');
+  const tag=page.locator('.word-tag-choice').filter({hasText:'工作'});await tag.click();await expect(tag).toHaveAttribute('aria-pressed','false');await tag.click();await expect(tag).toHaveAttribute('aria-pressed','true');
+  await page.locator('#dialog-confirm').click();
   await card().locator('.word-star').click();
   await expect.poll(async () => (await words()).words[0].starred).toBe(true);
   await page.locator('#vocabulary-filter').selectOption('known'); await page.locator('#vocabulary-tag').selectOption('tag:工作');

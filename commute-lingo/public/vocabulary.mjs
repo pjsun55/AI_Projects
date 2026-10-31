@@ -47,6 +47,10 @@ export function normalizeDictionary(value, word) {
     license: { ...DICTIONARY_LICENSE }, excerpt: true
   };
 }
+export function validateQuizStats(value = { correct: 0, incorrect: 0 }) {
+  if (!object(value) || !['correct', 'incorrect'].every(name => Number.isSafeInteger(value[name]) && value[name] >= 0 && value[name] < Number.MAX_SAFE_INTEGER)) throw Error('測驗統計格式無效。');
+  return { correct: value.correct, incorrect: value.incorrect };
+}
 export function validateWord(value) {
   if (!object(value)) throw new Error('單字資料格式無效。');
   const word = normalizeWord(value.word); wordIdentity(word, value.language);
@@ -55,7 +59,7 @@ export function validateWord(value) {
   for (const name of ['createdAt', 'updatedAt', 'version']) if (!Number.isSafeInteger(value[name]) || value[name] < 0 || (name !== 'version' && value[name] > 8640000000000000)) throw new Error('單字日期或版本無效。');
   if (!['', 'mymemory', 'manual', 'gemini'].includes(value.translationSource)) throw new Error('翻譯來源無效。');
   // Whitelist every persisted field: no audio, transcript, credentials or arbitrary URLs.
-  return { id: value.id, word, language: value.language, translation: text(value.translation, 500, '中文解釋'), translationSource: value.translationSource,
+  return { id: value.id, word, language: value.language, quizStats: validateQuizStats(value.quizStats), translation: text(value.translation, 500, '中文解釋'), translationSource: value.translationSource,
     dictionary: normalizeDictionary(value.dictionary, word), tags: normalizeTags(value.tags), starred: value.starred, status: value.status,
     note: text(value.note, 2000, '個人筆記'), sourceTitle: text(value.sourceTitle, 120, '來源名稱'), createdAt: value.createdAt, updatedAt: value.updatedAt, version: value.version };
 }
@@ -99,7 +103,7 @@ export function mergeVocabulary(local, incoming, { now = Date.now(), idFactory =
     const old = words[position];
     const tags = [...new Set([...old.tags, ...word.tags])];
     if (tags.length > 16) throw new Error(`「${old.word}」合併後超過 16 個標籤，請先整理標籤再還原。`);
-    const next = { ...old, translation: old.translation || word.translation, translationSource: old.translation ? old.translationSource : word.translationSource,
+    const next = { ...old, quizStats: { correct: Math.max(old.quizStats.correct, word.quizStats.correct), incorrect: Math.max(old.quizStats.incorrect, word.quizStats.incorrect) }, translation: old.translation || word.translation, translationSource: old.translation ? old.translationSource : word.translationSource,
       dictionary: old.dictionary || word.dictionary, note: old.note || word.note, sourceTitle: old.sourceTitle || word.sourceTitle, starred: old.starred || word.starred, tags };
     if (JSON.stringify(next) !== JSON.stringify(old)) { words[position] = validateWord({ ...next, version: old.version + 1, updatedAt: now }); enriched++; }
   }

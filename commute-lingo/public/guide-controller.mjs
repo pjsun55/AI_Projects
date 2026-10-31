@@ -1,10 +1,10 @@
-import * as storage from './storage.mjs?v=0.2.23';
-import { GEMINI_KEY, encryptApiKey, decryptApiKey } from './key-vault.mjs?v=0.2.23';
-import { generateGuide, verifyGeminiKey } from './gemini.mjs?v=0.2.23';
-import { transcriptText, guideAvailable, guideFingerprint, guideAudioRange, validateGuide } from './guide.mjs?v=0.2.23';
-import { normalizeWord, wordIdentity } from './vocabulary.mjs?v=0.2.23';
+import * as storage from './storage.mjs?v=0.2.34';
+import { GEMINI_KEY, encryptApiKey, decryptApiKey } from './key-vault.mjs?v=0.2.34';
+import { generateGuide, verifyGeminiKey } from './gemini.mjs?v=0.2.34';
+import { transcriptText, guideAvailable, guideFingerprint, guideAudioRange, validateGuide } from './guide.mjs?v=0.2.34';
+import { normalizeWord, wordIdentity } from './vocabulary.mjs?v=0.2.34';
 
-export function createGuideController({ getLibrary, getCurrent, getWords, saveWord, notify, openSettings, playQuote, broadcast, available = () => true }) {
+export function createGuideController({ getLibrary, getCurrent, getWords, saveWord, notify, openSettings, playQuote, broadcast, available = () => true, prepareArticle = () => {}, keyChanged = () => {} }) {
   const $ = id => document.getElementById(id);
   const records = new Map(), queue = [];
   let active, keyBusy = false, hasKey = false, epoch = 0, keyEpoch = 0, selection, statusTimer;
@@ -47,6 +47,7 @@ export function createGuideController({ getLibrary, getCurrent, getWords, saveWo
     const token = ++epoch, id = getCurrent()?.id;
     const [key, record] = await Promise.all([storage.read(GEMINI_KEY), id ? storage.read(`guide:${id}`) : null]);
     if (token !== epoch) return;
+    $('prepare-article').checked = getLibrary().settings.translateWithGuide;
     hasKey = !!key; if (id) records.set(id, record); keyControls(); render();
   }
   function render() {
@@ -164,8 +165,8 @@ export function createGuideController({ getLibrary, getCurrent, getWords, saveWo
       if (kind === 'save') {
         const record = await encryptApiKey(key); key = ''; abort();
         if (token !== keyEpoch) return;
-        await storage.setGeminiKey(record, generation); broadcast('gemini-key-changed'); notify('Key 已加密保存。請在播放器開啟「導讀」，手動按「產生導讀」。');
-      } else if (kind === 'remove') { abort(); await storage.setGeminiKey(null, generation); broadcast('gemini-key-changed'); notify('已移除此裝置的 Key。'); }
+        await storage.setGeminiKey(record, generation); keyChanged(); broadcast('gemini-key-changed'); notify('Key 已加密保存。請在播放器開啟「導讀」，手動按「產生導讀」。');
+      } else if (kind === 'remove') { abort(); await storage.setGeminiKey(null, generation); keyChanged(); broadcast('gemini-key-changed'); notify('已移除此裝置的 Key。'); }
       else {
         if (!key) key = await decryptApiKey(await storage.read(GEMINI_KEY));
         if (token !== keyEpoch) return;
@@ -177,7 +178,7 @@ export function createGuideController({ getLibrary, getCurrent, getWords, saveWo
   }
   let keyController;
   for (const [id, kind] of [['save-gemini-key', 'save'], ['verify-gemini-key', 'verify'], ['remove-gemini-key', 'remove']]) $(id).onclick = () => manageKey(kind).catch(error => notify(error.message, true));
-  $('generate-guide').onclick = () => { if (getCurrent()) start(getCurrent().id, { force: true }); };
+  $('generate-guide').onclick = () => { if (getCurrent()) { start(getCurrent().id, { force: true }); if ($('prepare-article').checked) prepareArticle(getCurrent().id); } };
   $('cancel-guide').onclick = () => { abort(); notify('已停止等待導讀；已送出的請求仍可能計入 Google 用量。'); };
   document.addEventListener('selectionchange', () => {
     if ($('guide-panel').hidden) return;

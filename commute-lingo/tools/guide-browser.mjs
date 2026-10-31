@@ -48,10 +48,13 @@ export async function runGuideBrowser(page, { version, output, onPhase = () => {
   await page.locator('[data-tab="settings"]').click();
   await expect(page.locator('#setting-guide-prompt')).toHaveValue(customPrompt);
   assert.equal(requests, 0);
-  const typography = await page.evaluate(() => ['setting-guide-prompt', 'gemini-key', 'setting-minutes'].map(id => {
-    const style = getComputedStyle(document.getElementById(id)); return { size: style.fontSize, family: style.fontFamily };
-  }));
-  assert.ok(typography.every(style => style.size === typography[0].size && style.family === typography[0].family), 'Prompt uses the same type size and family as other settings inputs');
+  const typography = await page.evaluate(() => {
+    const input = document.getElementById('setting-guide-prompt'), label = input.closest('label').querySelector('span');
+    const style = getComputedStyle(input), labelStyle = getComputedStyle(label);
+    return { size: style.fontSize, labelSize: labelStyle.fontSize, family: style.fontFamily, labelFamily: labelStyle.fontFamily };
+  });
+  assert.equal(typography.size, typography.labelSize, 'Prompt text matches the guide Prompt label size');
+  assert.equal(typography.family, typography.labelFamily);
   await page.locator('#gemini-key').fill(key); await page.locator('#save-gemini-key').click();
   await expect(page.locator('#gemini-key')).toHaveValue('');
   await expect.poll(async () => !!await read('gemini-key-v1')).toBe(true);
@@ -104,10 +107,10 @@ export async function runGuideBrowser(page, { version, output, onPhase = () => {
   await page.locator('#player-close').click();
   await page.locator('[data-tab="vocabulary"]').click();
   const topBar = await page.evaluate(() => {
-    const bar = document.getElementById('mini-player').getBoundingClientRect(), search = document.getElementById('vocabulary-search').getBoundingClientRect();
-    return { top: bar.top, bottom: bar.bottom, searchTop: search.top, viewport: innerHeight };
+    const bar = document.getElementById('mini-player').getBoundingClientRect(), quiz = document.getElementById('quiz-panel').getBoundingClientRect();
+    return { top: bar.top, bottom: bar.bottom, quizTop: quiz.top, viewport: innerHeight };
   });
-  assert.ok(topBar.top >= 0 && topBar.bottom < topBar.viewport / 2 && topBar.searchTop >= topBar.bottom, JSON.stringify(topBar));
+  assert.ok(topBar.top >= 0 && topBar.bottom < topBar.viewport / 2 && topBar.quizTop >= topBar.bottom, JSON.stringify(topBar));
   await page.screenshot({ path: new URL('top-player.png', output).pathname });
   await page.locator('#mini-open').click(); await page.locator('#playback-repeat').click();
   await expect.poll(async () => (await read('library-v2')).settings.repeatMode).toBe('track');

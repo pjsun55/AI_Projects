@@ -1,5 +1,5 @@
-import { readJSON } from './network.mjs?v=0.2.23';
-import { normalizeWord, wordIdentity, normalizeDictionary, LANGUAGES } from './vocabulary.mjs?v=0.2.23';
+import { readJSON } from './network.mjs?v=0.2.34';
+import { normalizeWord, wordIdentity, normalizeDictionary, LANGUAGES } from './vocabulary.mjs?v=0.2.34';
 
 export async function lookupDictionary(word, language, { signal, fetchImpl = globalThis.fetch } = {}) {
   word = normalizeWord(word);
