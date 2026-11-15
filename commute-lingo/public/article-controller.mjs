@@ -1,9 +1,9 @@
-import * as storage from './storage.mjs?v=0.2.34';
-import { GEMINI_KEY, decryptApiKey } from './key-vault.mjs?v=0.2.34';
-import { articleItems, articleSource, articleFingerprint, articleBatches, savedTranslations } from './article.mjs?v=0.2.34';
-import { translateArticleBatch } from './gemini.mjs?v=0.2.34';
+import * as storage from './storage.mjs?v=0.2.35';
+import { GEMINI_KEY, decryptApiKey } from './key-vault.mjs?v=0.2.35';
+import { articleItems, articleSource, articleFingerprint, articleBatches, savedTranslations, retryArticleBatch, articleErrorLabel } from './article.mjs?v=0.2.35';
+import { translateArticleBatch } from './gemini.mjs?v=0.2.35';
 
-export function createArticleController({ getLibrary, getCurrent, available, changed, notify, broadcast }) {
+export function createArticleController({ getLibrary, getCurrent, available, changed, notify, broadcast, retryWait, retryRandom }) {
   const records = new Map(); let active, epoch = 0, statusTimer;
   const current = () => { const track = getCurrent(); return savedTranslations(records.get(track?.id), track); };
   function render() {
@@ -11,7 +11,9 @@ export function createArticleController({ getLibrary, getCurrent, available, cha
     const track = getCurrent(), record = records.get(track?.id), items = current(), total = track ? articleItems(track).length : 0;
     const running = !!active && active.id === track?.id && !active.controller.signal.aborted || record?.status === 'running' && Date.now() - record.request?.startedAt < 190000;
     const status = document.getElementById('article-status');
-    status.textContent = running ? `中文翻譯中 · ${items.length}/${total} 句` : items.length === total && total ? '' : items.length ? `中文 ${items.length}/${total} 句${record?.error ? ' · 未完成，可續傳' : ''}` : record?.error ? '翻譯未完成，可重試' : '尚無中文譯文';
+    const retry = active && active.id === track?.id ? active.retry : null;
+    const retryText = retry ? ` · ${articleErrorLabel(retry.error)}，${Math.max(0, Math.ceil((retry.at - Date.now()) / 1000))} 秒後重試 ${retry.attempt}/3` : active && active.id === track?.id && active.retries ? ` · 重試 ${active.retries}/3` : '';
+    status.textContent = running ? `中文翻譯中 · ${items.length}/${total} 句${retryText}` : items.length === total && total ? '' : record?.error ? `中文 ${items.length}/${total} 句 · ${record.error}` : items.length ? `中文 ${items.length}/${total} 句 · 未完成，可續傳` : '尚無中文譯文';
     document.getElementById('article-tools').hidden = !getLibrary().settings.bilingual;
     const generate = document.getElementById('generate-article');
     generate.hidden = items.length === total && total > 0;
@@ -29,8 +31,8 @@ export function createArticleController({ getLibrary, getCurrent, available, cha
   async function start(id) {
     if (active || !available()) { notify('翻譯或資料處理中，請稍後再試。'); return; }
     const track = getLibrary().tracks.find(track => track.id === id); if (!track) return;
-    const job = { id, source: articleSource(track), controller: new AbortController() }; active = job; render();
-    let key = '', context, finished = false;
+    const job = { id, source: articleSource(track), controller: new AbortController(), retry: null, retries: 0 }; active = job; render();
+    let key = '', context, finished = false, failure = '翻譯已停止，可續傳。';
     try {
       const record = await storage.read(GEMINI_KEY);
       if (!record) throw Error('請先在設定保存 Gemini API Key。');
@@ -43,9 +45,20 @@ export function createArticleController({ getLibrary, getCurrent, available, cha
       if (!claim.changed) throw Error('另一個視窗正在翻譯，或原文／Key 已變更。');
       records.set(id, claim.record); broadcast('article-changed'); render();
       key = await decryptApiKey(record);
+      const renew = async () => {
+        job.controller.signal.throwIfAborted();
+        if (active !== job) throw Error('翻譯已停止。');
+        const lease = await storage.updateArticle(id, { ...context, action: 'renew' });
+        if (!lease.changed) throw Error('原文、Key 或音訊已變更，翻譯已停止。');
+        records.set(id, lease.record); broadcast('article-changed');
+      };
       for (const batch of articleBatches(track, savedTranslations(claim.record, track))) {
         if (job.controller.signal.aborted || (await storage.read(GEMINI_KEY))?.id !== record.id) return;
-        const result = await translateArticleBatch({ key, model, ...batch, signal: job.controller.signal });
+        const result = await retryArticleBatch(() => translateArticleBatch({ key, model, ...batch, signal: job.controller.signal }), {
+          signal: job.controller.signal, wait: retryWait, random: retryRandom,
+          beforeAttempt: async attempt => { await renew(); job.retry = null; job.retries = attempt; render(); },
+          onRetry: async ({ attempt, delay, error }) => { await renew(); job.retry = { attempt, at: Date.now() + delay, error }; render(); }
+        });
         if (job.controller.signal.aborted) return;
         const saved = await storage.updateArticle(id, { ...context, action: 'batch', items: result.content });
         if (!saved.changed) throw Error('原文、Key 或音訊已變更，翻譯已停止。');
@@ -55,11 +68,14 @@ export function createArticleController({ getLibrary, getCurrent, available, cha
       if (!saved.changed) throw Error('翻譯狀態未保存，請重新開啟這一集。');
       records.set(id, saved.record); finished = true; broadcast('article-changed'); notify('全文中文翻譯已完成，可離線閱讀。');
     } catch (error) {
-      if (!job.controller.signal.aborted) notify(error.message.replaceAll('導讀', '翻譯'), true);
+      if (!job.controller.signal.aborted) {
+        failure = error.code ? `${error.code === 'HTTP' ? `Gemini ${error.status} · ` : ''}${articleErrorLabel(error)}${job.retries >= 3 ? '，重試 3 次仍未完成' : ''}，可續傳。` : '翻譯或保存未完成，可續傳。';
+        notify(error.code ? failure : error.message.replaceAll('導讀', '翻譯'), true);
+      }
     } finally {
       key = '';
       if (context && !finished) {
-        const saved = await storage.updateArticle(id, { ...context, action: 'fail', error: '未完成，已保存的批次可離線閱讀；請手動續傳。' }).catch(() => null);
+        const saved = await storage.updateArticle(id, { ...context, action: 'fail', error: failure }).catch(() => null);
         if (saved?.changed) { records.set(id, saved.record); broadcast('article-changed'); }
       }
       if (active === job) active = null;

@@ -1,8 +1,8 @@
-import { validateVocabulary } from './vocabulary.mjs?v=0.2.34';
-import * as storage from './storage.mjs?v=0.2.34';
-import { GEMINI_KEY, decryptApiKey } from './key-vault.mjs?v=0.2.34';
-import { generateQuiz } from './gemini.mjs?v=0.2.34';
-import { QUIZ_KEY, QUIZ_JOB_KEY, validateQuizLevel, pickQuizWords, validateQuiz, quizMatches, quizParts, gradeQuiz } from './quiz.mjs?v=0.2.34';
+import { validateVocabulary } from './vocabulary.mjs?v=0.2.35';
+import * as storage from './storage.mjs?v=0.2.35';
+import { GEMINI_KEY, decryptApiKey } from './key-vault.mjs?v=0.2.35';
+import { generateQuiz } from './gemini.mjs?v=0.2.35';
+import { QUIZ_KEY, QUIZ_JOB_KEY, validateQuizLevel, pickQuizWords, validateQuiz, quizMatches, quizParts, gradeQuiz } from './quiz.mjs?v=0.2.35';
 
 export function createQuizController({ getBook, getModel, available, notify, saved, broadcast, getLevel = () => 'B1', saveLevel = async () => {} }) {
   const $=id=>document.getElementById(id);

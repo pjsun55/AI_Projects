@@ -1,9 +1,9 @@
-import { CHOICE_KEY, validateChoiceQuiz, choiceMatches, applyChoiceScore } from './choice-quiz.mjs?v=0.2.34';
-import { QUIZ_KEY, QUIZ_JOB_KEY, validateQuizLevel, validateQuiz, quizMatches, validateAnswers, applyQuizScore } from './quiz.mjs?v=0.2.34';
-import { validateVocabulary } from './vocabulary.mjs?v=0.2.34';
-import { personalBackup } from './backup.mjs?v=0.2.34';
-import { articleSource, articleItems, savedTranslations, validateTranslations } from './article.mjs?v=0.2.34';
-import { transcriptText } from './guide.mjs?v=0.2.34';
+import { CHOICE_KEY, validateChoiceQuiz, choiceMatches, applyChoiceScore } from './choice-quiz.mjs?v=0.2.35';
+import { QUIZ_KEY, QUIZ_JOB_KEY, validateQuizLevel, validateQuiz, quizMatches, validateAnswers, applyQuizScore } from './quiz.mjs?v=0.2.35';
+import { validateVocabulary } from './vocabulary.mjs?v=0.2.35';
+import { personalBackup } from './backup.mjs?v=0.2.35';
+import { articleSource, articleItems, savedTranslations, validateTranslations } from './article.mjs?v=0.2.35';
+import { transcriptText } from './guide.mjs?v=0.2.35';
 const DB_NAME = 'commute-lingo-v1';
 let connection;
 function database() {
@@ -228,7 +228,9 @@ export async function updateArticle(id, { action, source, fingerprint, keyId, re
           result.record = { version: 1, source, fingerprint, model, items: previous?.fingerprint === fingerprint ? savedTranslations(previous, track) : [], status: 'running', error: '', request: { id: requestId, startedAt: Date.now() } };
         } else {
           if (previous?.request?.id !== requestId || previous.fingerprint !== fingerprint) return;
-          if (action === 'batch') {
+          if (action === 'renew') {
+            result.record = { ...previous, request: { ...previous.request, startedAt: Date.now() } };
+          } else if (action === 'batch') {
             const validated = validateTranslations({ translations: items }, articleItems(track), false);
             const merged = new Map(savedTranslations(previous, track).map(item => [item.id, item]));
             validated.forEach(item => merged.set(item.id, item));

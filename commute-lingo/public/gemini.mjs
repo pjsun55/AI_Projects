@@ -1,7 +1,7 @@
-import { quizInstruction, validateQuizLevel, QUIZ_SCHEMA, validateGeneratedQuiz } from './quiz.mjs?v=0.2.34';
-import { ARTICLE_PROMPT, ARTICLE_SCHEMA, validateTranslations } from './article.mjs?v=0.2.34';
-import { GUIDE_INSTRUCTION, GUIDE_OUTPUT_RULES, normalizeGuidePrompt, GUIDE_SCHEMA, GUIDE_MAX_INPUT, GUIDE_MODEL, validateGuide } from './guide.mjs?v=0.2.34';
-import { validateApiKey } from './key-vault.mjs?v=0.2.34';
+import { quizInstruction, validateQuizLevel, QUIZ_SCHEMA, validateGeneratedQuiz } from './quiz.mjs?v=0.2.35';
+import { ARTICLE_PROMPT, ARTICLE_SCHEMA, validateTranslations } from './article.mjs?v=0.2.35';
+import { GUIDE_INSTRUCTION, GUIDE_OUTPUT_RULES, normalizeGuidePrompt, GUIDE_SCHEMA, GUIDE_MAX_INPUT, GUIDE_MODEL, validateGuide } from './guide.mjs?v=0.2.35';
+import { validateApiKey } from './key-vault.mjs?v=0.2.35';
 
 export class GeminiError extends Error {
   constructor(code, status) {
@@ -9,6 +9,11 @@ export class GeminiError extends Error {
     super(status ? ({ 400: 'Gemini 請求或 Key 無效。', 401: 'Gemini Key 驗證未通過。', 403: 'Gemini Key 權限不足，請檢查設定。', 404: 'Gemini 模型不可用。', 429: 'Gemini 額度或頻率受限，請稍後手動重試。' }[status] || 'Gemini 服務暫時無法完成請求。') : messages[code] || '無法完成 Gemini 導讀。');
     this.code = code; if (status) this.status = status;
   }
+}
+export function parseRetryAfter(value, now = Date.now()) {
+  if (typeof value !== 'string' || !value.trim() || value.length > 128) return 0;
+  const raw = value.trim(), millis = /^\d+(?:\.\d+)?$/u.test(raw) ? Number(raw) * 1000 : Date.parse(raw) - now;
+  return Number.isFinite(millis) ? Math.max(0, millis) : 0;
 }
 // Exactly one request per invocation. Provider errors, keys and prompts are never logged.
 async function request({ key, model, text, signal, progress = () => {}, prompt = GUIDE_INSTRUCTION, verify = false, articleTargets, quiz = false, quizLevel = 'B1', fetchImpl = globalThis.fetch }) {
@@ -32,7 +37,11 @@ async function request({ key, model, text, signal, progress = () => {}, prompt =
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
       body: JSON.stringify({ systemInstruction: { parts: [{ text: verify ? '只回覆 OK。' : instruction + (articleTargets || quiz ? '' : '\n\n' + GUIDE_OUTPUT_RULES) }] }, contents: [{ role: 'user', parts: [{ text }] }], generationConfig })
     });
-    if (!response.ok) { await response.body?.cancel().catch(() => {}); throw new GeminiError('HTTP', response.status); }
+    if (!response.ok) {
+      const error = new GeminiError('HTTP', response.status);
+      error.retryAfterMs = parseRetryAfter(response.headers.get('retry-after'));
+      await response.body?.cancel().catch(() => {}); throw error;
+    }
     if (!/\btext\/event-stream\b/i.test(response.headers.get('content-type') || '')) throw new GeminiError('RESPONSE');
     reader = response.body?.getReader(); if (!reader) throw new GeminiError('RESPONSE');
     const decoder = new TextDecoder(); let buffer = '', data = [];
@@ -42,7 +51,8 @@ async function request({ key, model, text, signal, progress = () => {}, prompt =
       if (++count > 4096) throw new GeminiError('TOO_LARGE');
       let value; try { value = JSON.parse(payload); } catch { throw new GeminiError('RESPONSE'); }
       const candidate = value?.candidates?.[0];
-      if (value?.error || value?.promptFeedback?.blockReason || candidate?.finishReason && !['STOP', 'MAX_TOKENS'].includes(candidate.finishReason)) throw new GeminiError('BLOCKED');
+      if (value?.error) throw Number.isInteger(value.error.code) && value.error.code >= 400 && value.error.code <= 599 ? new GeminiError('HTTP', value.error.code) : new GeminiError('BLOCKED');
+      if (value?.promptFeedback?.blockReason || candidate?.finishReason && !['STOP', 'MAX_TOKENS'].includes(candidate.finishReason)) throw new GeminiError('BLOCKED');
       if (candidate?.finishReason) finish = candidate.finishReason;
       result += candidate?.content?.parts?.filter(part => !part.thought && typeof part.text === 'string').map(part => part.text).join('') || '';
       if (result.length > 65536) throw new GeminiError('TOO_LARGE');
@@ -71,7 +81,7 @@ async function request({ key, model, text, signal, progress = () => {}, prompt =
     if (finish === 'MAX_TOKENS') throw new GeminiError('OUTPUT_LIMIT');
     if (finish !== 'STOP' || !result.trim()) throw new GeminiError('INCOMPLETE');
     // Reject rather than render or persist a response containing credential material.
-    if (result.includes(key) || /AIza[A-Za-z0-9_-]{20,}/u.test(result)) throw new GeminiError('RESPONSE');
+    if (result.includes(key) || /AIza[A-Za-z0-9_-]{20,}/u.test(result)) { const error = new GeminiError('RESPONSE'); error.retryable = false; throw error; }
     if (verify) return { usage };
     let parsed; try { parsed = JSON.parse(result); } catch { throw new GeminiError('RESPONSE'); }
     let content;

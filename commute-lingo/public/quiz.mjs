@@ -1,4 +1,4 @@
-import { wordIdentity, validateVocabulary } from './vocabulary.mjs?v=0.2.34';
+import { wordIdentity, validateVocabulary } from './vocabulary.mjs?v=0.2.35';
 export const QUIZ_LEVELS = Object.freeze({ A1: '入門', A2: '基礎', B1: '中級', B2: '中高級', C1: '進階', C2: '精通' });
 export function validateQuizLevel(value = 'B1') {
   if (typeof value !== 'string' || !Object.hasOwn(QUIZ_LEVELS, value)) throw Error('請選擇 A1、A2、B1、B2、C1 或 C2。');

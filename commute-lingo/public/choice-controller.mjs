@@ -1,5 +1,5 @@
-import * as storage from './storage.mjs?v=0.2.34';
-import { CHOICE_KEY, choicePool, createChoiceQuiz, validateChoiceQuiz, choiceMatches } from './choice-quiz.mjs?v=0.2.34';
+import * as storage from './storage.mjs?v=0.2.35';
+import { CHOICE_KEY, choicePool, createChoiceQuiz, validateChoiceQuiz, choiceMatches } from './choice-quiz.mjs?v=0.2.35';
 export function createChoiceController({getBook,available,saved,notify,broadcast}) {
   const $=id=>document.getElementById(id);
   let quiz=null,busy=false,epoch=0,timer,message='';

@@ -76,7 +76,7 @@ try {
   const guideExample = fixtureSentence.replace('a familiar story', 'the familiar story');
   const translatedTexts = [], dictionaryWords = [], heldWordLookups = []; let failWordLookups = false, holdWordLookups = false;
   const quizCalls = [], heldQuizzes = []; let holdQuiz = false, failQuiz = false;
-  const articleCalls = [], heldArticles = []; let holdArticleAt = 0, failArticles = false;
+  const articleCalls = [], heldArticles = []; let holdArticleAt = 0, failArticles = false; const articleFailureQueue = [];
   const geminiCalls = [], heldGuides = []; let holdGuides = false, failGuides = false;
   let fixtureName = 'A short test episode', fixtureMillis = 4000, fixtureSeconds = 4, partialTranscript = false, missingModelStart = false, wordTranscript = false, mixedTranscript = false, holdWorker = false, failWorker = false, mediaDownloads = 0, catalogLookups = 0, translated = 0;
   const runtimeFetch = async (input, options = {}) => {
@@ -91,7 +91,7 @@ try {
       }
       if (original.startsWith('{') && JSON.parse(original).task === 'article-translation') {
         const payload = JSON.parse(original); articleCalls.push(payload);
-        const reply = () => failArticles ? new Response('omitted', {status:429}) : new Response('data: '+JSON.stringify({candidates:[{content:{parts:[{text:JSON.stringify({translations:payload.targets.map(item=>({id:item.id,text:'中文譯文 '+item.id+' <script>不執行</script>'}))})}]},finishReason:'STOP'}]})+'\n\n',{headers:{'Content-Type':'text/event-stream'}});
+        const reply = () => { const status = articleFailureQueue.shift() || (failArticles ? 429 : 0); return status ? new Response('omitted', {status}) : new Response('data: '+JSON.stringify({candidates:[{content:{parts:[{text:JSON.stringify({translations:payload.targets.map(item=>({id:item.id,text:'中文譯文 '+item.id+' <script>不執行</script>'}))})}]},finishReason:'STOP'}]})+'\n\n',{headers:{'Content-Type':'text/event-stream'}}); };
         if (articleCalls.length === holdArticleAt) return new Promise(resolve=>heldArticles.push(()=>resolve(reply())));
         return reply();
       }
@@ -889,7 +889,8 @@ try {
   const articleTrack={...guidedTrack,id:'article-checkpoint',alignment:'word-v1',segments:Array.from({length:29},(_,id)=>({start:id,end:id+1,text:'Journey '+id+' brings new expressions.'}))};
   const articleLibrary={...isolatedLibrary,settings:{...(await library()).settings,bilingual:true,geminiModel:'gemini-3.5-flash-lite'},tracks:[articleTrack]};
   await storageModule.write('library-v2',articleLibrary); let displayed=new Map();
-  const articleController=articleControllerModule.createArticleController({getLibrary:()=>articleLibrary,getCurrent:()=>articleTrack,available:()=>true,changed:value=>{displayed=value;},notify:()=>{},broadcast:()=>{}});
+  const articleRetryWaits=[];let articleWaitHook;
+  const articleController=articleControllerModule.createArticleController({retryRandom:()=>0,retryWait:async(ms,signal)=>{articleRetryWaits.push(ms);if(articleWaitHook)await articleWaitHook(ms,signal);else await delay(1);signal.throwIfAborted();},getLibrary:()=>articleLibrary,getCurrent:()=>articleTrack,available:()=>true,changed:value=>{displayed=value;},notify:()=>{},broadcast:()=>{}});
   holdArticleAt=articleCalls.length+2;
   const initialArticle=articleController.start(articleTrack.id);
   await until(()=>heldArticles.length===1,'second translation batch held');
@@ -897,6 +898,11 @@ try {
   const checkpoint=await storageModule.read(`article:${articleTrack.id}`);
   const competingArticle=await storageModule.updateArticle(articleTrack.id,{action:'claim',source:checkpoint.source,fingerprint:checkpoint.fingerprint,keyId:encrypted.id,requestId:'competing',model:checkpoint.model});
   check(!competingArticle.changed,'atomic article claim rejects a competing tab');
+  await storageModule.write(`article:${articleTrack.id}`,{...checkpoint,request:{...checkpoint.request,startedAt:Date.now()-195000}});
+  const renewed=await storageModule.updateArticle(articleTrack.id,{action:'renew',source:checkpoint.source,fingerprint:checkpoint.fingerprint,keyId:encrypted.id,requestId:checkpoint.request.id,model:checkpoint.model});
+  const afterRenew=await storageModule.updateArticle(articleTrack.id,{action:'claim',source:checkpoint.source,fingerprint:checkpoint.fingerprint,keyId:encrypted.id,requestId:'cannot-steal-renewed',model:checkpoint.model});
+  check(renewed.changed && !afterRenew.changed && renewed.record.request.startedAt>Date.now()-10000,'renewing a retry lease prevents another tab taking ownership after the original timeout window');
+
   click('cancel-article');heldArticles.shift()();await initialArticle;
   check((await storageModule.read(`article:${articleTrack.id}`)).items.length===12 && (await storageModule.read(`article:${articleTrack.id}`)).status==='partial','cancel retains only completed checkpoints and ignores the late batch');
   const beforeResume=articleCalls.length;holdArticleAt=0;await articleController.start(articleTrack.id);
@@ -904,8 +910,27 @@ try {
   await articleController.refresh();check(displayed.size===29 && articleCalls.length===beforeResume+2,'reloading saved article needs no API');
   await storageModule.write(`article:${articleTrack.id}`, null);
   failArticles=true; const beforeArticleFailure=articleCalls.length; await articleController.start(articleTrack.id); await delay(30);
-  check(articleCalls.length===beforeArticleFailure+1 && (await storageModule.read(`article:${articleTrack.id}`)).status==='partial','quota failure stops article requests immediately without an automatic retry');
+  check(articleCalls.length===beforeArticleFailure+4 && articleRetryWaits.join(',')==='3000,6000,12000' && (await storageModule.read(`article:${articleTrack.id}`)).error.includes('重試 3 次') && $('article-status').textContent.includes('429'),'quota failure retries three times at bounded delays then exposes a safe reason with resumable checkpoints');
   failArticles=false;
+  articleRetryWaits.length=0;articleFailureQueue.push(0,503,503,503,503);
+  const beforeMidway=articleCalls.length;await articleController.start(articleTrack.id);
+  check(articleCalls.length===beforeMidway+5 && (await storageModule.read(`article:${articleTrack.id}`)).items.length===12 && articleCalls.slice(beforeMidway+1).every(item=>item.targets[0].id===12),'only the interrupted batch retries and previously translated sentences remain persisted');
+  const beforeRecovered=articleCalls.length;articleFailureQueue.push(429,503);articleRetryWaits.length=0;await articleController.start(articleTrack.id);
+  check(articleCalls.length===beforeRecovered+4 && articleCalls.slice(beforeRecovered,beforeRecovered+3).every(item=>item.targets[0].id===12) && displayed.size===29 && articleRetryWaits.join(',')==='3000,6000','429 and 503 recover automatically, then resume proceeds without translating saved sentences again');
+  await storageModule.write(`article:${articleTrack.id}`,null);
+  articleFailureQueue.push(401);const beforeUnauthorized=articleCalls.length;await articleController.start(articleTrack.id);
+  check(articleCalls.length===beforeUnauthorized+1 && (await storageModule.read(`article:${articleTrack.id}`)).error.includes('401'),'invalid Key stops without consuming retry budget');
+  let waitingForRetry=false;
+  articleWaitHook=(ms,signal)=>{waitingForRetry=true;return articleModule.waitForArticleRetry(60000,signal);};
+  articleFailureQueue.push(503);const beforeRetryCancel=articleCalls.length,pendingRetry=articleController.start(articleTrack.id);
+  await until(()=>waitingForRetry,'retry countdown visible');
+  check($('article-status').textContent.includes('重試 1/3') && !$('cancel-article').hidden,'retry countdown and stop control are visible while waiting');
+  click('cancel-article');await pendingRetry;await delay(20);articleWaitHook=null;
+  check(articleCalls.length===beforeRetryCancel+1 && (await storageModule.read(`article:${articleTrack.id}`)).status==='partial','cancelling a retry delay sends no later API request');
+  articleWaitHook=async()=>{await storageModule.setGeminiKey(null,await storageModule.dataGeneration());};
+  articleFailureQueue.push(503);const beforeKeyChange=articleCalls.length;await articleController.start(articleTrack.id);articleWaitHook=null;
+  check(articleCalls.length===beforeKeyChange+1 && (await storageModule.read(`article:${articleTrack.id}`)).status==='failed','Key removal during backoff invalidates ownership before any new request');
+  await storageModule.setGeminiKey(encrypted,await storageModule.dataGeneration());
   const securityContext={source:articleModule.articleSource(articleTrack),fingerprint:checkpoint.fingerprint,keyId:encrypted.id,requestId:'key-change',model:checkpoint.model};
   await storageModule.updateArticle(articleTrack.id,{...securityContext,action:'claim'});
   await storageModule.updateArticle(articleTrack.id,{...securityContext,action:'batch',items:[{id:0,text:'已保存的第一句'}]});
