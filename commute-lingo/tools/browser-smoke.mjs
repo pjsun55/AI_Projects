@@ -76,12 +76,12 @@ try {
           await page.screenshot({ path: new URL(`${name}-${viewport.width}-${tab}-ui125.png`, output).pathname });
         }
         await expect(page.locator('#setting-minutes')).toHaveValue('25');
-        await expect(page.locator('#setting-minutes')).toHaveAttribute('max', '60');
-        await page.locator('#setting-minutes').fill('60');
+        await expect(page.locator('#setting-minutes')).toHaveAttribute('max', '100');
+        await page.locator('#setting-minutes').fill('100');
         await page.locator('#settings-form button[type=submit]').click();
         await expect(page.locator('#settings-message')).toHaveText('設定已儲存。');
         await page.reload();
-        await expect(page.locator('#setting-minutes')).toHaveValue('60');
+        await expect(page.locator('#setting-minutes')).toHaveValue('100');
         await page.locator('[data-tab="import"]').click();
         phase = 'source-controls';
         const oldURL = 'https://podcasts.apple.com/example/id123?i=456&previous='.padEnd(300, 'x');

@@ -1,9 +1,9 @@
-import { validateQuizLevel } from './quiz.mjs?v=0.2.35';
-import { GUIDE_INSTRUCTION, normalizeGuidePrompt } from './guide.mjs?v=0.2.35';
-import { normalizeSegments, groupSentences } from './core.mjs?v=0.2.35';
+import { validateQuizLevel } from './quiz.mjs?v=0.2.36';
+import { GUIDE_INSTRUCTION, normalizeGuidePrompt } from './guide.mjs?v=0.2.36';
+import { normalizeSegments, groupSentences } from './core.mjs?v=0.2.36';
 
 export const LIBRARY_KEY = 'library-v2';
-export const MAX_AUDIO_MINUTES = 60;
+export const MAX_AUDIO_MINUTES = 100;
 export const DEFAULT_SETTINGS = Object.freeze({ albumLimit: 3, trackLimit: 3, maxMinutes: 25, autoUpdate: true, subtitleSize: 'normal', icon: 'sunrise', language: 'en', model: 'tiny', repeatMode: 'off', autoGuide: false, quizLevel: 'B1', bilingual: false, translateWithGuide: false, geminiModel: 'gemini-3.5-flash-lite', guidePrompt: GUIDE_INSTRUCTION });
 export const ICONS = [
   { id: 'journey', title: '聲音旅程', caption: '沿著聲音，抵達下一站', color: '#963ee7' },
@@ -18,7 +18,7 @@ export function title(value) {
 export function validateSettings(value) {
   const settings = { ...DEFAULT_SETTINGS, ...value };
   for (const name of ['albumLimit', 'trackLimit']) if (!Number.isInteger(settings[name]) || settings[name] < 1 || settings[name] > 5) throw new Error('專輯與每專輯音訊上限必須為 1–5 個。');
-  if (!Number.isInteger(settings.maxMinutes) || settings.maxMinutes < 1 || settings.maxMinutes > MAX_AUDIO_MINUTES) throw new Error('音訊長度上限必須為 1–60 分鐘。');
+  if (!Number.isInteger(settings.maxMinutes) || settings.maxMinutes < 1 || settings.maxMinutes > MAX_AUDIO_MINUTES) throw new Error(`音訊長度上限必須為 1–${MAX_AUDIO_MINUTES} 分鐘。`);
   if (!['normal', 'large', 'xlarge'].includes(settings.subtitleSize)) throw new Error('字幕大小設定無效。');
   if (!ICONS.some(icon => icon.id === settings.icon)) throw new Error('圖示選擇無效。');
   settings.icon = 'sunrise'; // Retain old preference compatibility, with the chosen fixed identity.
@@ -36,8 +36,8 @@ export function validateSettings(value) {
 export function emptyLibrary() { return { schema: 2, revision: 0, appearanceVersion: 2, settings: { ...DEFAULT_SETTINGS }, albums: [], tracks: [], playback: null }; }
 export function checkDuration(seconds, settings) {
   if (!Number.isFinite(seconds) || seconds <= 0) throw new Error('來源沒有有效的音訊長度，已停止匯入。');
-  if (!Number.isInteger(settings?.maxMinutes) || settings.maxMinutes < 1 || settings.maxMinutes > MAX_AUDIO_MINUTES) throw new Error('音訊長度上限必須為 1–60 分鐘。');
-  if (seconds > settings.maxMinutes * 60) throw new Error(`來源長度 ${(seconds / 60).toFixed(1)} 分鐘，超過目前 ${settings.maxMinutes} 分鐘上限。已停止，未進行轉錄；可至個人設定調整（最長 60 分鐘）。`);
+  if (!Number.isInteger(settings?.maxMinutes) || settings.maxMinutes < 1 || settings.maxMinutes > MAX_AUDIO_MINUTES) throw new Error(`音訊長度上限必須為 1–${MAX_AUDIO_MINUTES} 分鐘。`);
+  if (seconds > settings.maxMinutes * 60) throw new Error(`來源長度 ${(seconds / 60).toFixed(1)} 分鐘，超過目前 ${settings.maxMinutes} 分鐘上限。已停止，未進行轉錄；可至個人設定調整（最長 ${MAX_AUDIO_MINUTES} 分鐘）。`);
 }
 export const tracksIn = (library, albumId) => library.tracks.filter(track => track.albumId === albumId);
 export function changeSettings(library, input) {

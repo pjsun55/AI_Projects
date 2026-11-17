@@ -8,11 +8,11 @@ test('catalog duration over the preference rejects before any media download', a
   await assert.rejects(podcastSource(link, DEFAULT_SETTINGS, { fetchImpl: async () => { calls++; return Response.json({ results: [{ trackId: 1000796641961, trackName: 'Example', episodeUrl: 'https://media.example.com/audio.mp3', trackTimeMillis: 1500001 }] }); } }), /超過目前 25/);
   assert.equal(calls, 1);
 });
-test('catalog accepts exactly one hour and rejects anything longer with the raised preference', async () => {
-  for (const duration of [3600000, 3600001]) {
-    const result = podcastSource(link, { ...DEFAULT_SETTINGS, maxMinutes: 60 }, { fetchImpl: async () => Response.json({ results: [{ trackId: 1000796641961, trackName: 'One-hour fixture', episodeUrl: 'https://media.example.com/hour.mp3', trackTimeMillis: duration }] }) });
-    if (duration === 3600000) assert.equal((await result).title, 'One-hour fixture');
-    else await assert.rejects(result, /超過目前 60/);
+test('catalog supports 100-minute sources while preserving a lower saved preference', async () => {
+  for (const maxMinutes of [60, 100]) for (const extra of [0, 1]) {
+    const result = podcastSource(link, { ...DEFAULT_SETTINGS, maxMinutes }, { fetchImpl: async () => Response.json({ results: [{ trackId: 1000796641961, trackName: 'Long audio fixture', episodeUrl: 'https://media.example.com/long.mp3', trackTimeMillis: maxMinutes * 60000 + extra }] }) });
+    if (!extra) assert.equal((await result).title, 'Long audio fixture');
+    else await assert.rejects(result, new RegExp('超過目前 '+maxMinutes));
   }
 });
 test('media download rejects partial responses, HTML, and declared truncation', async () => {
@@ -33,6 +33,13 @@ function pipeline(overrides = {}) {
 function audioFile(name = 'My lesson.mp3', type = 'audio/mpeg', bytes = [0x49, 0x44, 0x33, 4, 0, 0, 0, 0, 0, 0]) {
   return Object.assign(new Blob([new Uint8Array(bytes)], { type }), { name });
 }
+test('local audio longer than 100 minutes is rejected before decode or model loading', async () => {
+  await assert.rejects(importAudioFile(audioFile(), { ...DEFAULT_SETTINGS, maxMinutes: 100 }, {
+    durationOf: async () => 6000.001,
+    decode: async () => assert.fail('over-limit audio must not decode'),
+    transcribe: async () => assert.fail('over-limit audio must not load ASR')
+  }), /超過目前 100/);
+});
 test('local MP3, M4A and WAV imports use full transcription guards and return pending local audio only', async () => {
   for (const file of [audioFile(), audioFile('Lesson.M4A', '', [0, 0, 0, 20, 102, 116, 121, 112, 77, 52, 65, 32]), audioFile('Lesson.wav', 'audio/x-wav', [82, 73, 70, 70, 20, 0, 0, 0, 87, 65, 86, 69])]) {
     const { events, dependencies } = pipeline({

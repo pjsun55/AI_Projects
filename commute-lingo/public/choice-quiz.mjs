@@ -1,4 +1,4 @@
-import { wordIdentity, validateVocabulary } from './vocabulary.mjs?v=0.2.35';
+import { wordIdentity, validateVocabulary } from './vocabulary.mjs?v=0.2.36';
 export const CHOICE_KEY = 'vocabulary-choice-v1';
 const normalized = text => text.normalize('NFKC').trim().replace(/\s+/gu,' ').toLowerCase();
 const identifier = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,80}$/u.test(value);

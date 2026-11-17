@@ -1,7 +1,7 @@
-import { quizInstruction, validateQuizLevel, QUIZ_SCHEMA, validateGeneratedQuiz } from './quiz.mjs?v=0.2.35';
-import { ARTICLE_PROMPT, ARTICLE_SCHEMA, validateTranslations } from './article.mjs?v=0.2.35';
-import { GUIDE_INSTRUCTION, GUIDE_OUTPUT_RULES, normalizeGuidePrompt, GUIDE_SCHEMA, GUIDE_MAX_INPUT, GUIDE_MODEL, validateGuide } from './guide.mjs?v=0.2.35';
-import { validateApiKey } from './key-vault.mjs?v=0.2.35';
+import { quizInstruction, validateQuizLevel, QUIZ_SCHEMA, validateGeneratedQuiz } from './quiz.mjs?v=0.2.36';
+import { ARTICLE_PROMPT, ARTICLE_SCHEMA, validateTranslations } from './article.mjs?v=0.2.36';
+import { GUIDE_INSTRUCTION, GUIDE_OUTPUT_RULES, normalizeGuidePrompt, GUIDE_SCHEMA, GUIDE_MAX_INPUT, GUIDE_MODEL, validateGuide } from './guide.mjs?v=0.2.36';
+import { validateApiKey } from './key-vault.mjs?v=0.2.36';
 
 export class GeminiError extends Error {
   constructor(code, status) {

@@ -156,10 +156,10 @@ try {
   const confirm = async () => { submit('dialog-form'); await until(() => !$('action-dialog').open || $('dialog-error').textContent, 'dialog saved or error'); if ($('dialog-error').textContent) throw new Error($('dialog-error').textContent); };
   await until(() => !$('start-import').disabled, 'app boot');
   check($('setting-minutes').value === '25', 'new libraries default to 25 minutes');
-  check($('setting-minutes').getAttribute('max') === '60', 'duration setting offers up to 60 minutes');
-  $('setting-minutes').value = '60'; submit('settings-form');
-  await until(async () => (await library()).settings.maxMinutes === 60, 'one-hour preference saved');
-  check((await library()).settings.maxMinutes === 60, '60-minute preference persists to IndexedDB');
+  check($('setting-minutes').getAttribute('max') === '100', 'duration setting offers up to 100 minutes');
+  $('setting-minutes').value = '100'; submit('settings-form');
+  await until(async () => (await library()).settings.maxMinutes === 100, '100-minute preference saved');
+  check((await library()).settings.maxMinutes === 100, '100-minute preference persists to IndexedDB');
   $('setting-minutes').value = '25'; submit('settings-form');
   await until(async () => (await library()).settings.maxMinutes === 25, 'restore 25-minute preference');
   const originalPrompt = $('setting-guide-prompt').value;

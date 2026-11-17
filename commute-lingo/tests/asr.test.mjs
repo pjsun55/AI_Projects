@@ -85,11 +85,11 @@ test('overlap timing prefers the window that resolves shared zero-duration token
   const [tokens, anchors] = mergeTimedTokens([[1n, 2n, 3n, 4n], [1n, 2n, 3n, 4n]], times);
   assert.deepEqual(tokens, [1n, 2n, 3n, 4n]); assert.deepEqual(anchors, times[1]);
 });
-test('one-hour audio visits every sample with bounded live model windows', async () => {
+test('100-minute audio visits every sample with bounded live model windows', async () => {
   const f = fixture(), progress = [];
-  const result = await transcribeWindows(f.pipeline, new Float32Array(36000), { progress: value => progress.push(value) });
-  assert.equal(result.processedSeconds, 3600); assert.equal(result.windowCount, 180);
-  assert.equal(progress.at(-1).audioSeconds, 3600); assert.equal(progress.at(-1).total, 180);
+  const result = await transcribeWindows(f.pipeline, new Float32Array(60000), { progress: value => progress.push(value) });
+  assert.equal(result.processedSeconds, 6000); assert.equal(result.windowCount, 300);
+  assert.equal(progress.at(-1).audioSeconds, 6000); assert.equal(progress.at(-1).total, 300);
   assert.equal(f.seen.at(-1).length, 200); assert.equal(f.merged[0].chunks.at(-1).is_last, true);
   assert.equal(f.maximumLive(), 1); assert.equal(f.live(), 0);
 });

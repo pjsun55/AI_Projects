@@ -1,7 +1,7 @@
-import * as storage from './storage.mjs?v=0.2.35';
-import { GEMINI_KEY, decryptApiKey } from './key-vault.mjs?v=0.2.35';
-import { articleItems, articleSource, articleFingerprint, articleBatches, savedTranslations, retryArticleBatch, articleErrorLabel } from './article.mjs?v=0.2.35';
-import { translateArticleBatch } from './gemini.mjs?v=0.2.35';
+import * as storage from './storage.mjs?v=0.2.36';
+import { GEMINI_KEY, decryptApiKey } from './key-vault.mjs?v=0.2.36';
+import { articleItems, articleSource, articleFingerprint, articleBatches, savedTranslations, retryArticleBatch, articleErrorLabel } from './article.mjs?v=0.2.36';
+import { translateArticleBatch } from './gemini.mjs?v=0.2.36';
 
 export function createArticleController({ getLibrary, getCurrent, available, changed, notify, broadcast, retryWait, retryRandom }) {
   const records = new Map(); let active, epoch = 0, statusTimer;

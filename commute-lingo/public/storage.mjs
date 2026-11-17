@@ -1,9 +1,9 @@
-import { CHOICE_KEY, validateChoiceQuiz, choiceMatches, applyChoiceScore } from './choice-quiz.mjs?v=0.2.35';
-import { QUIZ_KEY, QUIZ_JOB_KEY, validateQuizLevel, validateQuiz, quizMatches, validateAnswers, applyQuizScore } from './quiz.mjs?v=0.2.35';
-import { validateVocabulary } from './vocabulary.mjs?v=0.2.35';
-import { personalBackup } from './backup.mjs?v=0.2.35';
-import { articleSource, articleItems, savedTranslations, validateTranslations } from './article.mjs?v=0.2.35';
-import { transcriptText } from './guide.mjs?v=0.2.35';
+import { CHOICE_KEY, validateChoiceQuiz, choiceMatches, applyChoiceScore } from './choice-quiz.mjs?v=0.2.36';
+import { QUIZ_KEY, QUIZ_JOB_KEY, validateQuizLevel, validateQuiz, quizMatches, validateAnswers, applyQuizScore } from './quiz.mjs?v=0.2.36';
+import { validateVocabulary } from './vocabulary.mjs?v=0.2.36';
+import { personalBackup } from './backup.mjs?v=0.2.36';
+import { articleSource, articleItems, savedTranslations, validateTranslations } from './article.mjs?v=0.2.36';
+import { transcriptText } from './guide.mjs?v=0.2.36';
 const DB_NAME = 'commute-lingo-v1';
 let connection;
 function database() {

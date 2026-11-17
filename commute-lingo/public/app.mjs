@@ -1,22 +1,22 @@
-import { createChoiceController } from './choice-controller.mjs?v=0.2.35';
-import { createQuizController } from './quiz-controller.mjs?v=0.2.35';
-import { createArticleController } from './article-controller.mjs?v=0.2.35';
-import { readingCues, activeWord } from './reading.mjs?v=0.2.35';
-import { formatTime, findActive, transcriptCoverage, sentenceTexts } from './core.mjs?v=0.2.35';
-import * as storage from './storage.mjs?v=0.2.35';
-import { createTranslator } from './translation.mjs?v=0.2.35';
-import { DEFAULT_SETTINGS, LIBRARY_KEY, emptyLibrary, validateSettings, title, tracksIn, addAlbum, removeAlbum, removeTrack, rename, placeTrack, changeSettings, libraryBytes, playbackQueue, nextPlayback, sentenceTarget, sentencesFor, legacyLibrary, newId } from './library.mjs?v=0.2.35';
-import { createGuideController } from './guide-controller.mjs?v=0.2.35';
-import { guideAudioRange, GUIDE_INSTRUCTION } from './guide.mjs?v=0.2.35';
-import { importPodcast, importAudioFile, transcribeSavedAudio } from './source.mjs?v=0.2.35';
-import { icon, fillIcons } from './icons.mjs?v=0.2.35';
-import { longPress, isMobileLandscape } from './gestures.mjs?v=0.2.35';
-import { personalBackup, readPersonalBackup, planPersonalRestore } from './backup.mjs?v=0.2.35';
-import { VOCABULARY_KEY, LANGUAGES, WORD_STATUSES, emptyVocabulary, validateVocabulary, validateWord, normalizeWord, wordIdentity, addWord, editWord, needsLookup } from './vocabulary.mjs?v=0.2.35';
-import { lookupDictionary } from './dictionary.mjs?v=0.2.35';
-import { createSubtitleFollow, subtitleScrollTop, sentenceReadingParts, createAudioExcerpt } from './subtitles.mjs?v=0.2.35';
-import { createUpdater, reloadVersion } from './updates.mjs?v=0.2.35';
-import { holdScreenAwake } from './wake-lock.mjs?v=0.2.35';
+import { createChoiceController } from './choice-controller.mjs?v=0.2.36';
+import { createQuizController } from './quiz-controller.mjs?v=0.2.36';
+import { createArticleController } from './article-controller.mjs?v=0.2.36';
+import { readingCues, activeWord } from './reading.mjs?v=0.2.36';
+import { formatTime, findActive, transcriptCoverage, sentenceTexts } from './core.mjs?v=0.2.36';
+import * as storage from './storage.mjs?v=0.2.36';
+import { createTranslator } from './translation.mjs?v=0.2.36';
+import { DEFAULT_SETTINGS, LIBRARY_KEY, emptyLibrary, validateSettings, title, tracksIn, addAlbum, removeAlbum, removeTrack, rename, placeTrack, changeSettings, libraryBytes, playbackQueue, nextPlayback, sentenceTarget, sentencesFor, legacyLibrary, newId } from './library.mjs?v=0.2.36';
+import { createGuideController } from './guide-controller.mjs?v=0.2.36';
+import { guideAudioRange, GUIDE_INSTRUCTION } from './guide.mjs?v=0.2.36';
+import { importPodcast, importAudioFile, transcribeSavedAudio } from './source.mjs?v=0.2.36';
+import { icon, fillIcons } from './icons.mjs?v=0.2.36';
+import { longPress, isMobileLandscape } from './gestures.mjs?v=0.2.36';
+import { personalBackup, readPersonalBackup, planPersonalRestore } from './backup.mjs?v=0.2.36';
+import { VOCABULARY_KEY, LANGUAGES, WORD_STATUSES, emptyVocabulary, validateVocabulary, validateWord, normalizeWord, wordIdentity, addWord, editWord, needsLookup } from './vocabulary.mjs?v=0.2.36';
+import { lookupDictionary } from './dictionary.mjs?v=0.2.36';
+import { createSubtitleFollow, subtitleScrollTop, sentenceReadingParts, createAudioExcerpt } from './subtitles.mjs?v=0.2.36';
+import { createUpdater, reloadVersion } from './updates.mjs?v=0.2.36';
+import { holdScreenAwake } from './wake-lock.mjs?v=0.2.36';
 
 const $ = id => document.getElementById(id);
 const audio = $('audio');
@@ -39,7 +39,7 @@ const currentTrack = () => state.library.tracks.find(track => track.id === state
 const albumOf = track => state.library.albums.find(album => album.id === track?.albumId);
 const safe = action => (...args) => { try { return Promise.resolve(action(...args)).catch(error => notify(error.message, true)); } catch (error) { notify(error.message, true); } };
 const updater = createUpdater({
-  serviceWorker: navigator.serviceWorker, version: '0.2.35',
+  serviceWorker: navigator.serviceWorker, version: '0.2.36',
   isAuto: () => state.library.settings.autoUpdate,
   visible: () => !document.hidden,
   canUpdate: () => state.ready && audio.paused && !guides.busy && !articles.busy && !quizzes.busy && !choices.busy && !quizzes.editing && !$('gemini-key').value && !state.loadingAudio && !state.job && !state.pending && !state.writing && !state.clearing && !state.backup && !state.restoring && !state.wordLookup && !state.translation && !state.settingsDirty && !$('player').open && !$('action-dialog').open && !$('source-url').value.trim() && !state.file && !document.activeElement?.matches?.('input,select,textarea'),
@@ -396,7 +396,7 @@ function applyAppearance(settings) {
   document.documentElement.style.setProperty('--subtitle-size', { normal: '18.4px', large: '22.4px', xlarge: '27.2px' }[settings.subtitleSize]);
   $('brand-icon').src = `./icon-${settings.icon}.svg`; $('favicon').href = `./icon-${settings.icon}.svg`;
   $('touch-icon').href = `./icon-${settings.icon}-192.png`;
-  $('manifest').href = `./manifest-${settings.icon}.webmanifest?v=0.2.35`;
+  $('manifest').href = `./manifest-${settings.icon}.webmanifest?v=0.2.36`;
 }
 async function refreshStorage() {
   const total = libraryBytes(state.library);
@@ -1127,7 +1127,7 @@ async function offlineStatus() {
     const check = () => {
       const channel = new MessageChannel();
       const timer = setTimeout(() => { channel.port1.close(); $('offline-status').textContent = '新版可在線使用；請在保存後關閉舊分頁再開啟，以更新離線頁面。'; }, 2000);
-      channel.port1.onmessage = ({ data }) => { clearTimeout(timer); channel.port1.close(); $('offline-status').textContent = data.version === '0.2.35' && data.ready ? '頁面已可離線使用；已收藏的音訊與快取翻譯可離線讀取，新匯入與新翻譯需要連線。' : '新版可在線使用，離線頁面尚待更新。'; };
+      channel.port1.onmessage = ({ data }) => { clearTimeout(timer); channel.port1.close(); $('offline-status').textContent = data.version === '0.2.36' && data.ready ? '頁面已可離線使用；已收藏的音訊與快取翻譯可離線讀取，新匯入與新翻譯需要連線。' : '新版可在線使用，離線頁面尚待更新。'; };
       registration.active?.postMessage({ type: 'CACHE_VERSION' }, [channel.port2]);
     };
     navigator.serviceWorker.addEventListener('controllerchange', check); check();

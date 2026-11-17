@@ -14,6 +14,8 @@ test('personal backup round-trips settings and vocabulary and excludes all other
   const result = await readPersonalBackup(blob);
   assert.equal(result.vocabulary.words[0].translation, '復原力'); assert.equal(result.settings.maxMinutes, 25);
   assert.equal(result.vocabulary.revision, 0); assert.equal(result.settings.guidePrompt, library.settings.guidePrompt);
+  const extended = await readPersonalBackup(personalBackup({ ...library.settings, maxMinutes: 100 }, book));
+  assert.equal(extended.settings.maxMinutes, 100);
 });
 test('backup restore only builds a preview, preserves local albums/audio metadata, and never calls an API', async () => {
   const library = placeTrack(addAlbum(emptyLibrary(), 'My saved audio', 'album'), { id: 'track', title: 'Original', duration: 120, segments: [{ start: 0, end: 120, text: 'Original words.' }] }, 'album');
